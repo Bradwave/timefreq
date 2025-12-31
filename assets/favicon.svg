@@ -1,6 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" fill="#1484e6" rx="12"/>
-  <!-- White Wave -->
-  <path d="M8 32 Q20 8 32 32 T56 32" 
-        fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Micro Spectrogram Bars -->
+  <!-- Center -->
+  <rect x="29" y="12" width="6" height="40" rx="3" fill="#ffffff" />
+  <!-- Left 1 -->
+  <rect x="20" y="18" width="6" height="28" rx="3" fill="#ffffff" opacity="1"/>
+  <!-- Right 1 -->
+  <rect x="38" y="18" width="6" height="28" rx="3" fill="#ffffff" opacity="1"/>
+  <!-- Left 2 -->
+  <rect x="11" y="26" width="6" height="12" rx="3" fill="#ffffff" opacity="1"/>
+  <!-- Right 2 -->
+  <rect x="47" y="26" width="6" height="12" rx="3" fill="#ffffff" opacity="1"/>
 </svg>

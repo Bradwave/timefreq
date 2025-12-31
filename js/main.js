@@ -12,7 +12,7 @@ class SignalComponent {
         this.startTime = startTime;
         this.endTime = 5.0;
         this.envelopeType = envelopeType;
-        this.envelopeParams = {
+        this.envelopeParams = { 
             gaussian: { center: 0.5, width: 0.2 },
             adsr: { a: 0.1, d: 0.1, s: 0.5, r: 0.2 },
             square: {}
@@ -52,6 +52,8 @@ const state = {
     windowType: 'gaussian', // 'gaussian' | 'square'
     windowWidth: 0.2,
     spectrogramLogScale: false,
+    stftTimeRes: 400, // Number of time columns. Previously hardcoded 200.
+    stftFreqRes: 512, // Signal FFT Size. Previously hardcoded 256.
 
     // Memory Optimization Buffers (From F3D)
     buffers: {
@@ -87,6 +89,9 @@ const elements = {
     // STFT Controls
     windowWidthSlider: document.getElementById('window-width-slider'),
     windowWidthDisplay: document.getElementById('window-width-display'),
+    windowPreviewCanvas: document.getElementById('window-preview-canvas'),
+    stftTimeResSlider: document.getElementById('stft-time-res-slider'),
+    stftTimeResDisplay: document.getElementById('stft-time-res-display'),
     
     canvases: {
         signal: document.getElementById('signal-canvas'),
@@ -101,6 +106,7 @@ const elements = {
 Object.keys(elements.canvases).forEach(k => {
     if(elements.canvases[k]) elements.ctx[k] = elements.canvases[k].getContext('2d');
 });
+if(elements.windowPreviewCanvas) elements.ctx.windowPreview = elements.windowPreviewCanvas.getContext('2d');
 
 let audioCtx = null;
 let isPlaying = null;
@@ -115,7 +121,8 @@ function init() {
     renderComponentsUI();
     setupListeners();
     updateSignalSliderUI();
-    // updateFreqSliderUI();
+    updateFreqSliderUI();
+    drawWindowPreview();
     animate();
 }
 
@@ -134,6 +141,13 @@ function syncGlobalControls() {
         elements.windowWidthDisplay.innerText = state.windowWidth.toFixed(2) + 's';
     }
     setWindowType(state.windowType);
+    
+    // Sync Res Controls
+    if(elements.stftTimeResSlider) {
+        elements.stftTimeResSlider.value = state.stftTimeRes;
+        elements.stftTimeResDisplay.innerText = state.stftTimeRes;
+    }
+    setFFTSize(state.stftFreqRes);
     
     const logToggle = document.getElementById('spectrogram-log-toggle');
     if(logToggle) logToggle.checked = state.spectrogramLogScale;
@@ -188,6 +202,8 @@ function saveState() {
         windowType: state.windowType,
         windowWidth: state.windowWidth,
         spectrogramLogScale: state.spectrogramLogScale,
+        stftTimeRes: state.stftTimeRes,
+        stftFreqRes: state.stftFreqRes,
         isSidebarCollapsed: state.isSidebarCollapsed
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
@@ -216,11 +232,25 @@ function loadState() {
             if (parsed.windowType) state.windowType = parsed.windowType;
             if (parsed.windowWidth) state.windowWidth = parsed.windowWidth;
             if (parsed.spectrogramLogScale !== undefined) state.spectrogramLogScale = parsed.spectrogramLogScale;
+            if (parsed.stftTimeRes) state.stftTimeRes = parsed.stftTimeRes;
+            if (parsed.stftFreqRes) state.stftFreqRes = parsed.stftFreqRes;
             if (parsed.isSidebarCollapsed !== undefined) state.isSidebarCollapsed = parsed.isSidebarCollapsed;
 
         } catch (e) { console.error(e); }
     }
 }
+
+// STFT Res Control Help
+window.setFFTSize = (size) => {
+    state.stftFreqRes = size;
+    // UI Update
+    document.querySelectorAll('.segmented-option').forEach(el => {
+        if(el.id.startsWith('fft-')) el.classList.remove('active');
+    });
+    const activeBtn = document.getElementById(`fft-${size}`);
+    if(activeBtn) activeBtn.classList.add('active');
+    saveState();
+};
 
 // Window Type
 window.setWindowType = (type) => {
@@ -231,7 +261,73 @@ window.setWindowType = (type) => {
     const btnS = document.getElementById('window-square');
     if(type === 'gaussian' && btnG) btnG.classList.add('active');
     if(type === 'square' && btnS) btnS.classList.add('active');
+    drawWindowPreview();
     saveState();
+}
+
+function drawWindowPreview() {
+    if(!elements.ctx.windowPreview || !elements.windowPreviewCanvas) return;
+    const ctx = elements.ctx.windowPreview;
+    const canvas = elements.windowPreviewCanvas;
+    
+    // Fix DPI
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    
+    const w = rect.width;
+    const h = rect.height;
+    
+    ctx.clearRect(0,0,w,h);
+    
+    // Draw Axis like other previews (bottom line)
+    // Actually the stroke logic below handles the main shape.
+    // Let's just draw the window.
+    
+    // Draw Window Function
+    // We visualize it centered in time [-Width/2, Width/2] mapped to canvas width
+    // Canvas X=0 -> -0.6s, X=w -> +0.6s
+    const range = 1.2; 
+    
+    ctx.strokeStyle = '#1484e6';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    
+    const winW = state.windowWidth;
+    
+    for(let i=0; i<=w; i++) {
+        const xNorm = i/w;
+        const t = (xNorm - 0.5) * range; // Time relative to center
+        
+        let val = 0;
+        if(Math.abs(t) <= winW/2) {
+            if(state.windowType === 'square') {
+                val = 1.0;
+            } else {
+                // Gaussian: sigma = width/6 (matches STFT logic approx 3 sigma coverage)
+                const sigma = winW / 6;
+                val = Math.exp(-(t*t)/(2*sigma*sigma));
+            }
+        }
+        
+        // Match preview style: y = h - (val * h * 0.9) - 2
+        // Just like drawEnvelopePreview
+        const y = h - (val * h * 0.8) - 1; 
+        if(i===0) ctx.moveTo(i,y); else ctx.lineTo(i,y);
+    }
+    ctx.stroke();
+    
+    // Fill slightly?
+    /*
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(20, 132, 230, 0.1)';
+    ctx.fill();
+    */
+
 }
 
 window.toggleSpectrogramLog = () => {
@@ -637,8 +733,17 @@ function animate() {
     // Max Freq for FFT Plot
     let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
     const strictMaxFreq = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+    // Check if slider needs update based on component changes
+    const sliderStart = document.getElementById('freq-start-input');
+    if(sliderStart && parseFloat(sliderStart.max) !== strictMaxFreq) {
+         updateFreqSliderUI();
+    }
+    
+    // Ensure view boundaries are sane
+    if(state.viewAbs.endFreq > strictMaxFreq) state.viewAbs.endFreq = strictMaxFreq;
+    if(state.viewAbs.startFreq > strictMaxFreq) state.viewAbs.startFreq = Math.max(0, strictMaxFreq - 10);
+    
     const maxDisplayFreq = state.viewAbs.endFreq > 0 ? Math.min(state.viewAbs.endFreq, strictMaxFreq) : strictMaxFreq;
-    if (state.viewAbs.startFreq > strictMaxFreq) state.viewAbs.startFreq = Math.max(0, strictMaxFreq - 10);
 
     drawSignalPlot(elements.ctx.signal, displaySignal, elements.canvases.signal);
     drawAbsTransform(elements.ctx.abs, fftResult, elements.canvases.abs, maxDisplayFreq, N_FFT);
@@ -648,12 +753,12 @@ function animate() {
 // STFT Core
 // Only recompute when signal changes? For now run every frame for simplicity
 function computeSTFT(signalBuffer, sampleRate, duration) {
-    const numCols = 200; // Resolution
+    const numCols = state.stftTimeRes || 200; // Variable Time Resolution
+    const N_FFT = state.stftFreqRes || 256;   // Variable Freq Resolution
     const stftData = []; 
     
     const wWidthSeconds = state.windowWidth;
     const wSamples = Math.floor(wWidthSeconds * sampleRate);
-    const N_FFT = 256; 
     
     // Precompute Window
     const winFunc = new Float32Array(wSamples);
@@ -698,7 +803,9 @@ function computeSTFT(signalBuffer, sampleRate, duration) {
         // Adapting input to [{re,im}] for every column is slow (allocations).
         // Let's create a temp object buffer for STFT FFT.
         
-        if(!state.buffers.stftInput) state.buffers.stftInput = [];
+        // Since N_FFT can change, we can't reliably reuse a single static buffer unless we resize/check it.
+        // Quick Fix: Check size.
+        if(!state.buffers.stftInput || state.buffers.stftInput.length < N_FFT) state.buffers.stftInput = [];
         const stftInput = ensureObjectArray(state.buffers.stftInput, N_FFT, ()=>({re:0, im:0}));
         
         for(let i=0; i<N_FFT; i++) {
@@ -706,7 +813,7 @@ function computeSTFT(signalBuffer, sampleRate, duration) {
             stftInput[i].im = 0;
         }
         
-        if(!state.buffers.stftOutput) state.buffers.stftOutput = [];
+        if(!state.buffers.stftOutput || state.buffers.stftOutput.length < N_FFT) state.buffers.stftOutput = [];
         const stftOutput = ensureObjectArray(state.buffers.stftOutput, N_FFT, ()=>({re:0, im:0}));
         
         fft(stftInput, stftOutput, N_FFT);
@@ -793,6 +900,29 @@ function drawSignalPlot(ctx, data, canvas) {
             ctx.strokeStyle = 'rgba(20, 132, 230, 0.8)'; ctx.lineWidth = 2; ctx.stroke();
         }
     }
+
+    // Selected Time Marker
+    const tX = timeToX(state.selectedTime);
+    if (tX >= -2 && tX <= w + 2) {
+        ctx.beginPath();
+        ctx.moveTo(tX, 0);
+        ctx.lineTo(tX, h);
+        ctx.strokeStyle = '#1484e6';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+
+        ctx.setLineDash([]);
+        const val = getSignalValueAt(state.selectedTime);
+        const y = h / 2 - val * (h / (2 * bound));
+        ctx.beginPath();
+        ctx.fillStyle = '#1484e6';
+        ctx.arc(tX, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
 }
 
 function drawAbsTransform(ctx, fft, canvas, maxFreq, N_FFT) {
@@ -858,6 +988,32 @@ function drawAbsTransform(ctx, fft, canvas, maxFreq, N_FFT) {
         if (pts.length > 0) {
             ctx.beginPath(); ctx.strokeStyle = '#000000'; ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
             drawSpline(ctx, pts, state.fftSmoothing); ctx.stroke();
+        }
+
+        // Selected Freq Marker
+        const selX = ((state.selectedFrequency - startF) / freqRange) * w;
+        if (selX >= 0 && selX <= w) {
+            ctx.beginPath();
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.moveTo(selX, 0);
+            ctx.lineTo(selX, h);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const idx = Math.round(state.selectedFrequency / dF);
+            const ptIdx = idx - startK;
+            let closestY = yZero;
+            if (ptIdx >= 0 && ptIdx < pts.length) closestY = pts[ptIdx].y;
+
+            ctx.beginPath();
+            ctx.fillStyle = '#000000';
+            ctx.arc(selX, closestY, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
         }
     }
 }
@@ -1081,6 +1237,49 @@ function drawSpectrogram(ctx, stftData, canvas, maxFreq) {
     if(state.showAxis) {
         drawAxis(ctx, w, h, [state.zoomStart, state.zoomEnd], [0, displayMax], ' s', ' Hz');
     }
+
+    // DRAW OVERLAYS on Spectrogram
+    // 1. Time Line (Vertical)
+    if(state.selectedTime >= state.zoomStart && state.selectedTime <= state.zoomEnd) {
+        const timeX = ((state.selectedTime - state.zoomStart) / (state.zoomEnd - state.zoomStart)) * w;
+        ctx.beginPath();
+        ctx.strokeStyle = '#1484e6';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.moveTo(timeX, 0);
+        ctx.lineTo(timeX, h);
+        ctx.stroke();
+    }
+
+    // 2. Freq Line (Horizontal)
+    // displayMax is top (y=0 in canvas). 0Hz is Bottom (y=h).
+    // range 0 to displayMax.
+    if(state.selectedFrequency >= 0 && state.selectedFrequency <= displayMax) {
+        const freqY = h - (state.selectedFrequency / displayMax) * h;
+        ctx.beginPath();
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.moveTo(0, freqY);
+        ctx.lineTo(w, freqY);
+        ctx.stroke();
+
+        // 3. Intersection
+        if(state.selectedTime >= state.zoomStart && state.selectedTime <= state.zoomEnd) {
+            const timeX = ((state.selectedTime - state.zoomStart) / (state.zoomEnd - state.zoomStart)) * w;
+            ctx.setLineDash([]);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.strokeStyle = '#fff';
+            ctx.arc(timeX, freqY, 5, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.fillStyle = '#000000';
+            ctx.arc(timeX, freqY, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
 }
 
 
@@ -1112,13 +1311,63 @@ window.updateDisplaySegment = (type, val) => {
     saveState();
 };
 
+function updateFreqSliderUI() {
+    let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
+    const maxLimit = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+
+    const sliderStart = document.getElementById('freq-start-input');
+    const sliderEnd = document.getElementById('freq-end-input');
+
+    if (sliderStart && sliderEnd) {
+        if (sliderStart.max != maxLimit) { sliderStart.max = maxLimit; sliderEnd.max = maxLimit; }
+        // Ensure values are clamped
+        if (state.viewAbs.startFreq > maxLimit) state.viewAbs.startFreq = maxLimit;
+        if (state.viewAbs.endFreq > maxLimit && state.viewAbs.endFreq !== 0) state.viewAbs.endFreq = maxLimit;
+
+        sliderStart.value = state.viewAbs.startFreq;
+        sliderEnd.value = state.viewAbs.endFreq === 0 ? 0 : state.viewAbs.endFreq;
+
+        const fill = document.getElementById('freq-segment-fill');
+        const displayEnd = state.viewAbs.endFreq === 0 ? maxLimit : state.viewAbs.endFreq;
+        if (fill) {
+            fill.style.left = (state.viewAbs.startFreq / maxLimit) * 100 + '%';
+            fill.style.width = ((displayEnd - state.viewAbs.startFreq) / maxLimit) * 100 + '%';
+        }
+        const label = document.getElementById('freq-segment-label');
+        if (label) label.innerText = `Displayed frequencies (${state.viewAbs.startFreq.toFixed(1)}Hz - ${state.viewAbs.endFreq === 0 ? 'Auto' : state.viewAbs.endFreq.toFixed(1) + 'Hz'})`;
+    }
+}
+
+window.updateFreqSegment = (type, val) => {
+    val = parseFloat(val);
+    if (type === 'start') {
+        if (state.viewAbs.endFreq !== 0 && val >= state.viewAbs.endFreq) state.viewAbs.endFreq = val + 1;
+        state.viewAbs.startFreq = val;
+    } else {
+        if (state.viewAbs.endFreq === 0) { state.viewAbs.startFreq = 0; }
+        if (val <= state.viewAbs.startFreq) state.viewAbs.startFreq = Math.max(val - 1, 0);
+        state.viewAbs.endFreq = val;
+    }
+    updateFreqSliderUI();
+    saveState();
+};
+
 function setupListeners() {
     // Window Width
     if(elements.windowWidthSlider) {
         elements.windowWidthSlider.addEventListener('input', (e) => {
            state.windowWidth = parseFloat(e.target.value);
            elements.windowWidthDisplay.innerText = state.windowWidth.toFixed(2) + 's';
+           drawWindowPreview();
            saveState();
+        });
+    }
+
+    if(elements.stftTimeResSlider) {
+        elements.stftTimeResSlider.addEventListener('input', (e) => {
+            state.stftTimeRes = parseInt(e.target.value);
+            elements.stftTimeResDisplay.innerText = state.stftTimeRes;
+            saveState();
         });
     }
 
@@ -1198,30 +1447,234 @@ function setupListeners() {
     // Abs Plot Drag Interaction
     const absCanvas = elements.canvases.abs;
     if(absCanvas) {
+        const handleFreqDrag = (e) => {
+             const rect = absCanvas.getBoundingClientRect();
+             const w = rect.width;
+             const x = e.clientX - rect.left;
+
+             let maxCompFreq = 0;
+             state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
+             const strictMax = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+             // Calculate max display freq currently
+             const maxDisplay = state.viewAbs.endFreq > 0 ? state.viewAbs.endFreq : strictMax;
+             const startF = state.viewAbs.startFreq;
+             
+             if(state.viewAbs.isPanning) {
+                 const dx = e.clientX - state.lastMouse.x;
+                 const range = maxDisplay - startF;
+                 const shift = -(dx / w) * range;
+                 
+                 let newStart = state.viewAbs.startFreq + shift;
+                 let newEnd = (state.viewAbs.endFreq === 0 ? strictMax : state.viewAbs.endFreq) + shift;
+                 
+                 // Clamp
+                 if(newStart < 0) {
+                     const d = 0 - newStart;
+                     newStart += d; newEnd += d;
+                 }
+                 if(newEnd > strictMax) {
+                     const d = newEnd - strictMax;
+                     newStart -= d; newEnd -= d;
+                     if(newStart < 0) newStart = 0;
+                 }
+                 
+                 state.viewAbs.startFreq = newStart;
+                 state.viewAbs.endFreq = newEnd;
+                 updateFreqSliderUI();
+             } else {
+                 // Select Freq
+                 const f = startF + (x / w) * (maxDisplay - startF);
+                 state.selectedFrequency = Math.max(0, Math.min(f, maxDisplay));
+                 if(elements.plotInfo) elements.plotInfo.innerText = `Freq: ${state.selectedFrequency.toFixed(2)} Hz`;
+             }
+             state.lastMouse = { x: e.clientX, y: e.clientY };
+             saveState();
+        };
+
         absCanvas.addEventListener('pointerdown', (e) => {
             absCanvas.setPointerCapture(e.pointerId);
             if (e.ctrlKey) {
                 state.viewAbs.isPanning = true;
                 state.lastMouse = { x: e.clientX, y: e.clientY };
+            } else {
+                handleFreqDrag(e);
             }
         });
         absCanvas.addEventListener('pointermove', (e) => {
              if (e.ctrlKey) absCanvas.style.cursor = 'grab';
-             else absCanvas.style.cursor = 'default';
+             else absCanvas.style.cursor = 'col-resize';
              
-             if(state.viewAbs.isPanning) {
-                 const rect = absCanvas.getBoundingClientRect();
-                 const w = rect.width;
-                 const dx = e.clientX - state.lastMouse.x;
-                 // Simple pan logic for freq
-                 // ... (Simplified for brevity as fourier3d logic was complex)
-                 // Just keeping it simple for now to avoid compilation errors if something missing
-                 state.lastMouse = { x: e.clientX, y: e.clientY };
+             if(state.viewAbs.isPanning || e.buttons === 1) {
+                 handleFreqDrag(e);
              }
         });
+        absCanvas.addEventListener('wheel', (e) => {
+             if(e.ctrlKey) {
+                 e.preventDefault();
+                 const rect = absCanvas.getBoundingClientRect();
+                 const w = rect.width;
+                 const x = e.clientX - rect.left;
+                 
+                 let maxCompFreq = 0;
+                 state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
+                 const strictMax = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+                 const currentEnd = state.viewAbs.endFreq > 0 ? state.viewAbs.endFreq : strictMax;
+                 const currentStart = state.viewAbs.startFreq;
+                 
+                 const fFocus = currentStart + (x/w)*(currentEnd - currentStart);
+                 const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+                 const newRange = (currentEnd - currentStart) * zoomFactor;
+                 
+                 let newStart = fFocus - (fFocus - currentStart) * zoomFactor;
+                 let newEnd = newStart + newRange;
+                 
+                 if(newStart < 0) newStart = 0;
+                 if(newEnd > strictMax) {
+                     const d = newEnd - strictMax; newStart -= d; newEnd -= d;
+                     if(newStart < 0) newStart = 0;
+                 }
+                 state.viewAbs.startFreq = newStart;
+                 state.viewAbs.endFreq = newEnd;
+                 updateFreqSliderUI();
+                 saveState();
+             }
+        }, {passive: false});
+
         absCanvas.addEventListener('pointerup', (e) => {
             state.viewAbs.isPanning = false;
             absCanvas.releasePointerCapture(e.pointerId);
+        });
+    }
+
+    // Signal Plot Interactions (Zoom/Pan/Select)
+    const sigCanvas = elements.canvases.signal;
+    if(sigCanvas) {
+         const handleSigDrag = (e) => {
+             const rect = sigCanvas.getBoundingClientRect();
+             const w = rect.width;
+             const x = e.clientX - rect.left;
+             
+             if(state.isPanningSignal) {
+                 const dx = e.clientX - state.lastMouse.x;
+                 const tr = state.zoomEnd - state.zoomStart;
+                 const shift = -(dx/w)*tr;
+                 state.zoomStart = Math.max(0, state.zoomStart + shift);
+                 state.zoomEnd = Math.min(5.0, state.zoomStart + tr);
+                 if(state.zoomStart < 0) state.zoomStart = 0;
+                 if(state.zoomEnd > 5.0) state.zoomEnd = 5.0;
+                 if(state.zoomStart > state.zoomEnd - 0.01) state.zoomStart = state.zoomEnd - 0.01;
+                 updateSignalSliderUI();
+             } else {
+                 const t = state.zoomStart + (x/w)*(state.zoomEnd - state.zoomStart);
+                 state.selectedTime = Math.max(state.zoomStart, Math.min(t, state.zoomEnd));
+                 if(elements.timeInfo) elements.timeInfo.innerText = `Time: ${state.selectedTime.toFixed(2)}s`;
+             }
+             state.lastMouse = { x: e.clientX, y: e.clientY };
+             saveState();
+         };
+
+         sigCanvas.addEventListener('pointerdown', (e) => {
+             sigCanvas.setPointerCapture(e.pointerId);
+             if(e.ctrlKey) {
+                 state.isPanningSignal = true;
+                 state.lastMouse = { x: e.clientX, y: e.clientY };
+             } else {
+                 handleSigDrag(e);
+             }
+         });
+         sigCanvas.addEventListener('pointermove', (e) => {
+             if(e.ctrlKey) sigCanvas.style.cursor = 'grab';
+             else sigCanvas.style.cursor = 'col-resize';
+             
+             if(state.isPanningSignal || e.buttons === 1) {
+                 handleSigDrag(e);
+             }
+         });
+         sigCanvas.addEventListener('wheel', (e) => {
+             if(e.ctrlKey) {
+                 e.preventDefault();
+                 const rect = sigCanvas.getBoundingClientRect();
+                 const w = rect.width;
+                 const x = e.clientX - rect.left;
+                 
+                 const tFocus = state.zoomStart + (x/w)*(state.zoomEnd - state.zoomStart);
+                 const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+                 const newRange = (state.zoomEnd - state.zoomStart) * zoomFactor;
+                 
+                 state.zoomStart = Math.max(0, tFocus - (tFocus - state.zoomStart) * zoomFactor);
+                 state.zoomEnd = Math.min(5.0, state.zoomStart + newRange);
+                 
+                 updateSignalSliderUI();
+                 saveState();
+             }
+         }, {passive: false});
+
+         sigCanvas.addEventListener('pointerup', (e) => {
+             state.isPanningSignal = false;
+             sigCanvas.releasePointerCapture(e.pointerId);
+         });
+    }
+
+    // Spectrogram Interaction
+    const specCanvas = elements.canvases.spectrogram;
+    if(specCanvas) {
+        const handleSpecDrag = (e) => {
+             const rect = specCanvas.getBoundingClientRect();
+             const w = rect.width;
+             const h = rect.height;
+             const x = e.clientX - rect.left;
+             const y = e.clientY - rect.top;
+             
+             // X -> Time
+             // range: state.zoomStart to state.zoomEnd
+             const t = state.zoomStart + (x/w)*(state.zoomEnd - state.zoomStart);
+             state.selectedTime = Math.max(state.zoomStart, Math.min(t, state.zoomEnd));
+             if(elements.timeInfo) elements.timeInfo.innerText = `Time: ${state.selectedTime.toFixed(2)}s`;
+
+             // Y -> Freq
+             // Y=0 -> displayMax, Y=h -> 0Hz ? 
+             // In drawSpectrogram:
+             // displayMax = Math.min(maxFreq, nyquist).
+             // ctx.drawImage(..., 0, 0, w, h). 
+             // But drawImage draws the source sub-rect.
+             // Source rect: sy = th - sh (High Freq to Low Freq? No).
+             // tCtx logic: y=0 (bin 0) is drawn at index corresponding to py=th-1 (Bottom).
+             // So in Temp Canvas: Top=MaxHz, Bottom=0Hz for the whole buffer.
+             // The sub-selection sy, sh selects a slice.
+             // If we select sy=0, sh=th, we get full range.
+             // In full range: Top(0) is MaxHz, Bottom(h) is 0Hz.
+             
+             // Calc current display max
+             let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
+             const strictMaxFreq = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+             const dispEnd = state.viewAbs.endFreq > 0 ? Math.min(state.viewAbs.endFreq, strictMaxFreq) : strictMaxFreq;
+             const nyquist = state.sampleRate / 2;
+             const displayMax = Math.min(dispEnd, nyquist);
+             
+             // Y=0 -> Max, Y=h -> 0
+             // val = Max * (1 - y/h)
+             const f = displayMax * (1 - (y/h));
+             state.selectedFrequency = Math.max(0, Math.min(f, displayMax));
+             if(elements.plotInfo) elements.plotInfo.innerText = `Freq: ${state.selectedFrequency.toFixed(2)} Hz`;
+
+             saveState();
+        };
+        
+        specCanvas.addEventListener('pointerdown', (e) => {
+            specCanvas.setPointerCapture(e.pointerId);
+            handleSpecDrag(e);
+        });
+        specCanvas.addEventListener('pointermove', (e) => {
+            if(e.buttons === 1) {
+                specCanvas.style.cursor = 'crosshair';
+                handleSpecDrag(e);
+            } else {
+                specCanvas.style.cursor = 'default';
+            }
+        });
+        specCanvas.addEventListener('pointerup', (e) => {
+             specCanvas.releasePointerCapture(e.pointerId);
+             specCanvas.style.cursor = 'default';
         });
     }
 }
