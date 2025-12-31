@@ -311,6 +311,13 @@ input[type="range"]::-webkit-slider-thumb:hover {
     transform: scale(1.2);
 }
 
+.plot-container canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+}
+
 /* Toggle Switch */
 .toggle-switch {
     position: relative;
@@ -832,16 +839,16 @@ button.secondary:hover {
         order: 1;
         flex: 1;
         height: auto;
-        padding-bottom: 0;
+        padding-bottom: 12px;
         overflow-y: auto; /* Allow internal scroll if needed, but usually canvases fit */
     }
 
     .sidebar {
         order: 2;
         width: 100%;
-        height: 35vh; /* Occupy bottom ~35% */
+        height: 28dvh; /* More compact height */
         flex: 0 0 auto;
-        position: relative; /* Not fixed */
+        position: relative;
         top: auto;
         left: auto;
         transform: none;
@@ -850,7 +857,8 @@ button.secondary:hover {
         z-index: 20;
         padding: 16px;
         box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
-        display: flex !important; /* Always show, unless collapsed explicitly */
+        display: flex !important;
+        overflow-y: auto;
     }
 
     /* Collapsed State Logic */
@@ -861,6 +869,7 @@ button.secondary:hover {
     body.sidebar-collapsed .plots-wrapper {
         flex: 1;
         height: 100%;
+        padding-bottom: 40px; /* Space at the bottom */
     }
 
     /* Toggle Button: Centered Tab style like Fourier3D */
@@ -870,31 +879,30 @@ button.secondary:hover {
         transform: translateX(-50%);
         width: 64px;
         height: 24px;
-        border-radius: 12px 12px 0 0;
-        border: 1px solid var(--color-border);
-        border-bottom: none;
+        border-radius: 12px 12px 0 0 !important;
+        border: 1px solid var(--color-border) !important;
+        border-bottom: none !important;
         background: white;
         z-index: 1001;
         display: flex;
         justify-content: center;
         align-items: center;
         box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.05);
-        bottom: 35vh; /* Match sidebar height */
+        bottom: 28dvh; /* Match sidebar height */
         right: auto; /* Reset FAB */
         top: auto;
     }
 
     body.sidebar-collapsed #toggle-sidebar-btn {
         bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
     }
 
     #toggle-sidebar-btn span {
         font-size: 20px;
-        transform: rotate(-90deg); /* Point down (collapse) */
-    }
-
-    body.sidebar-collapsed #toggle-sidebar-btn span {
-        transform: rotate(90deg); /* Point up (expand) */
+        margin-left: 0 !important;
+        transform: rotate(-90deg) !important; /* < points DOWN, > points UP */
     }
 }
 
