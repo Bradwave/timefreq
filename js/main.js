@@ -20,6 +20,10 @@ class SignalComponent {
         this.phase = 0;
         this.waveType = 'sine';
         this.collapsed = false;
+        // Chirp
+        this.isChirp = false;
+        this.freqStart = 1;
+        this.freqEnd = 5;
     }
 }
 
@@ -263,6 +267,9 @@ function loadState() {
                 const n = new SignalComponent(c.freq, c.amp);
                 Object.assign(n, c);
                 if (!n.waveType) n.waveType = 'sine';
+                if (c.isChirp) n.isChirp = true;
+                if (c.freqStart !== undefined) n.freqStart = c.freqStart;
+                if (c.freqEnd !== undefined) n.freqEnd = c.freqEnd;
                 return n;
             });
             if (parsed.audioMultiplier) state.audioMultiplier = parsed.audioMultiplier;
@@ -442,15 +449,17 @@ window.updateComponent = (id, prop, value) => {
     const c = state.components.find(x => x.id === id);
     if (c) {
         c[prop] = parseFloat(value);
-        const valElem = document.getElementById((prop === 'freq' ? 'f-val-' : (prop === 'amp' ? 'a-val-' : 'p-val-')) + id);
+        const valElem = document.getElementById((prop === 'freq' ? 'f-val-' : (prop === 'amp' ? 'a-val-' : (prop === 'phase' ? 'p-val-' : (prop === 'freqStart' ? 'fs-val-' : 'fe-val-')))) + id);
         if (valElem) {
             let label = value;
-            if (prop === 'freq') label += ' Hz';
+            if (prop === 'freq' || prop === 'freqStart' || prop === 'freqEnd') label += ' Hz';
             else if (prop === 'phase') label = parseFloat(value).toFixed(2) + ' rad';
             valElem.innerText = label;
         }
         drawComponentPreview(document.getElementById(`preview-${c.id}`), c);
         drawEnvelopePreview(document.getElementById(`env-prev-${c.id}`), c);
+        // Also update the collapsed preview inside the expanded card (exp-col-prev-ID)
+        drawCollapsedPreview(document.getElementById(`exp-col-prev-${c.id}`), c);
         saveState();
     }
 };
@@ -481,6 +490,7 @@ window.updateEnvParam = (id, type, param, value) => {
         c.envelopeParams[type][param] = parseFloat(value);
         saveState();
         drawEnvelopePreview(document.getElementById(`env-prev-${id}`), c);
+        drawCollapsedPreview(document.getElementById(`exp-col-prev-${c.id}`), c);
     }
 };
 
@@ -497,6 +507,7 @@ window.updateTimeConstraint = (id, type, value) => {
     const c = state.components.find(x => x.id === id);
     if (!c) return;
     updateTimeConstraintLogic(c, type, parseFloat(value));
+    drawCollapsedPreview(document.getElementById(`exp-col-prev-${c.id}`), c);
 };
 
 function updateTimeConstraintLogic(comp, type, value) {
@@ -545,8 +556,8 @@ function renderComponentsUI() {
         el.className = 'component-row';
         const pf = (Math.PI / 16);
         el.innerHTML = `
-            <div class="component-header">
-                <span>WAVE ${index + 1}</span>
+                <div class="component-header">
+                <span>${comp.isChirp ? 'CHIRP' : 'WAVE'} ${index + 1}</span>
                 <div style="display: flex; gap: 8px; align-items: center;">
                     <span class="material-symbols-outlined remove-btn" style="font-size: 18px;" onclick="window.toggleCollapse('${comp.id}')">
                         ${comp.collapsed ? 'expand_more' : 'expand_less'}
@@ -564,6 +575,25 @@ function renderComponentsUI() {
                     <canvas id="exp-col-prev-${comp.id}" width="300" height="40"></canvas>
                 </div>
                 <div class="component-controls" style="display: flex; flex-direction: column; gap: 8px;">
+                     ${comp.isChirp ? `
+                        <!-- Chirp Frequencies -->
+                        <div style="display: flex; gap: 12px;">
+                            <div class="component-control-item" style="flex: 1;">
+                                <div class="component-slider-wrapper">
+                                    <span class="component-label">START FREQ</span>
+                                    <input type="range" class="compact-range" value="${comp.freqStart}" min="0.5" max="50" step="0.5" oninput="updateComponent('${comp.id}', 'freqStart', this.value)">
+                                </div>
+                                <div id="fs-val-${comp.id}" class="component-value">${comp.freqStart} Hz</div>
+                            </div>
+                            <div class="component-control-item" style="flex: 1;">
+                                <div class="component-slider-wrapper">
+                                    <span class="component-label">END FREQ</span>
+                                    <input type="range" class="compact-range" value="${comp.freqEnd}" min="0.5" max="50" step="0.5" oninput="updateComponent('${comp.id}', 'freqEnd', this.value)">
+                                </div>
+                                <div id="fe-val-${comp.id}" class="component-value">${comp.freqEnd} Hz</div>
+                            </div>
+                        </div>
+                     ` : `
                      <!-- Wave Type Selector -->
                     <div class="component-control-item" style="width: 100%;">
                         <div class="segmented-control" style="margin-bottom: 0px; width: 100%;">
@@ -582,6 +612,7 @@ function renderComponentsUI() {
                         </div>
                         <div id="f-val-${comp.id}" class="component-value">${comp.freq} Hz</div>
                     </div>
+                    `}
                     <!-- Amp & Phase Row -->
                     <div style="display: flex; gap: 12px;">
                         <div class="component-control-item" style="flex: 1;">
@@ -694,7 +725,24 @@ function getSignalValueAt(t) {
             const tNorm = (t - comp.startTime) / duration;
             ampOffset = getEnvelopeValue(tNorm, comp.envelopeType, comp.envelopeParams);
         }
-        val += comp.amp * getWaveValue(t, comp.freq, comp.phase || 0, comp.waveType || 'sine') * ampOffset;
+        
+        let waveVal = 0;
+        if(comp.isChirp) {
+            // Chirp Logic
+            const dt = t - comp.startTime; 
+            // Phase Integral: phi(t) = 2pi * (fStart*t + 0.5*k*t^2)
+            // k = (fEnd - fStart) / duration
+            // We use dt (relative time)
+            if(duration > 0.0001) {
+                 const k = (comp.freqEnd - comp.freqStart) / duration;
+                 const phase = 2 * Math.PI * (comp.freqStart * dt + 0.5 * k * dt * dt) + (comp.phase || 0);
+                 waveVal = Math.cos(phase);
+            }
+        } else {
+            waveVal = getWaveValue(t, comp.freq, comp.phase || 0, comp.waveType || 'sine');
+        }
+        
+        val += comp.amp * waveVal * ampOffset;
     });
     return val * state.ampMultiplier;
 }
@@ -1713,10 +1761,14 @@ function drawSpectrogram(ctx, stftData, canvas, maxFreq) {
     }
 
     // 2. Freq Line (Horizontal)
-    // displayMax is top (y=0 in canvas). 0Hz is Bottom (y=h).
-    // range 0 to displayMax.
-    if(state.selectedFrequency >= 0 && state.selectedFrequency <= displayMax) {
-        const freqY = h - (state.selectedFrequency / displayMax) * h;
+    // Map freq to Y. 0Hz is Bottom? 
+    // In current spectrogram draw, py=th-1 is Low Freq (Bottom). py=0 is High (Top).
+    // Mapping: Y_pixel = (1.0 - (f - dispStart)/(dispEnd - dispStart)) * h
+    
+    if(state.selectedFrequency >= dispStart && state.selectedFrequency <= dispEnd) {
+        const freqRatio = (state.selectedFrequency - dispStart) / (dispEnd - dispStart);
+        const freqY = h - (freqRatio * h);
+        
         ctx.beginPath();
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1;
@@ -1854,6 +1906,19 @@ function setupListeners() {
         renderComponentsUI();
         saveState();
     });
+    
+    const addChirpBtn = document.getElementById('add-chirp-btn');
+    if(addChirpBtn) {
+        addChirpBtn.addEventListener('click', () => {
+            const c = new SignalComponent(1, 1.0);
+            c.isChirp = true;
+            c.freqStart = 2; // Default start
+            c.freqEnd = 10;  // Default end
+            state.components.push(c);
+            renderComponentsUI();
+            saveState();
+        });
+    }
 
     elements.resetBtn.addEventListener('click', () => {
         localStorage.removeItem(STORAGE_KEY);
@@ -2230,17 +2295,33 @@ function generateAudioBuffer() {
         const t = i / sr; // Audio Time
         let val = 0;
         state.components.forEach(comp => {
-            let compVal = comp.amp * getWaveValue(t, comp.freq * K, comp.phase || 0, comp.waveType || 'sine');
-            // Apply envelope
-            if (t < comp.startTime || t > comp.endTime) {
-                compVal = 0;
-            } else {
-                const dur = comp.endTime - comp.startTime;
-                if (dur > 0.01) {
-                    const tNorm = (t - comp.startTime) / dur;
-                    compVal *= getEnvelopeValue(tNorm, comp.envelopeType, comp.envelopeParams);
-                }
+            const startTime = (comp.startTime !== undefined) ? comp.startTime : 0;
+            const endTime = (comp.endTime !== undefined) ? comp.endTime : duration;
+            
+            if (t < startTime || t > endTime) {
+                return;
             }
+
+            let compVal = 0;
+            const dur = endTime - startTime;
+
+            if (comp.isChirp) {
+                if (dur > 0.0001) {
+                     const dt = t - startTime;
+                     const k = (comp.freqEnd - comp.freqStart) / dur;
+                     const phase = 2 * Math.PI * (comp.freqStart * K * dt + 0.5 * k * K * dt * dt) + (comp.phase || 0);
+                     compVal = comp.amp * Math.cos(phase);
+                }
+            } else {
+                compVal = comp.amp * getWaveValue(t, comp.freq * K, comp.phase || 0, comp.waveType || 'sine');
+            }
+
+            // Apply envelope if parameters exist
+            if (comp.envelopeParams && dur > 0.01) {
+                const tNorm = (t - startTime) / dur;
+                compVal *= getEnvelopeValue(tNorm, comp.envelopeType, comp.envelopeParams);
+            }
+            
             val += compVal;
         });
         data[i] = Math.tanh(val * 0.5) * state.masterVolume;
@@ -2284,5 +2365,89 @@ window.importComponents = (input) => {
     reader.readAsText(file);
     input.value = ''; 
 };
+
+
+function drawComponentPreview(canvas, comp) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const r = canvas.getBoundingClientRect();
+    canvas.width = r.width * dpr;
+    canvas.height = r.height * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, r.width, r.height);
+    ctx.beginPath();
+    ctx.strokeStyle = '#1484e6';
+    ctx.lineWidth = 2;
+    ctx.moveTo(0, r.height / 2);
+    for (let x = 0; x <= r.width; x++) {
+        const t = (x / r.width) * 1.0;
+        let val = 0;
+        if(comp.isChirp) {
+             const k = (comp.freqEnd - comp.freqStart) / 1.0; 
+             const phase = 2 * Math.PI * (comp.freqStart * t + 0.5 * k * t * t) + (comp.phase || 0);
+             val = comp.amp * Math.cos(phase);
+        } else {
+             val = comp.amp * getWaveValue(t, comp.freq, comp.phase || 0, comp.waveType || 'sine');
+        }
+        ctx.lineTo(x, r.height / 2 - (val / 2.5) * (r.height / 2));
+    }
+    ctx.stroke();
+}
+
+function drawCollapsedPreview(canvas, comp) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const r = canvas.getBoundingClientRect();
+    canvas.width = r.width * dpr;
+    canvas.height = r.height * dpr;
+    ctx.scale(dpr, dpr);
+    const w = r.width;
+    const h = r.height;
+    ctx.clearRect(0, 0, w, h);
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#1484e6';
+    ctx.lineWidth = 1.5;
+    
+    // Draw 0 to 5s timeline
+    const MAX = 5.0;
+    const yBase = h / 2;
+    const yScale = h / 2.5; 
+    
+    for (let i = 0; i <= w; i++) {
+        const t = (i / w) * MAX;
+        let val = 0;
+        
+        // Time Constraint & Envelope Logic
+        if (t >= comp.startTime && t <= comp.endTime) {
+            const duration = comp.endTime - comp.startTime;
+            let env = 1;
+            if (duration > 0.01) {
+                const tNorm = (t - comp.startTime) / duration;
+                env = getEnvelopeValue(tNorm, comp.envelopeType, comp.envelopeParams);
+            }
+            
+            let carrier = 0;
+            if(comp.isChirp) {
+                const dt = t - comp.startTime;
+                if(duration > 0.0001) {
+                     const k = (comp.freqEnd - comp.freqStart) / duration;
+                     const phase = 2 * Math.PI * (comp.freqStart * dt + 0.5 * k * dt * dt) + (comp.phase || 0);
+                     carrier = Math.cos(phase);
+                }
+            } else {
+                carrier = getWaveValue(t, comp.freq, comp.phase || 0, comp.waveType || 'sine');
+            }
+            val = carrier * env * comp.amp;
+        }
+        
+        const y = yBase - val * yScale;
+        if (i === 0) ctx.moveTo(i, y);
+        else ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+}
 
 init();

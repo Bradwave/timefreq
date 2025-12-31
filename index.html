@@ -40,9 +40,14 @@
                     <div id="components-container">
                         <!-- Components injected here -->
                     </div>
-                    <button id="add-component-btn" class="action-button">
-                        <span class="material-symbols-outlined">add</span> ADD WAVE
-                    </button>
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button id="add-component-btn" class="action-button" style="flex: 1;">
+                            <span class="material-symbols-outlined">add</span> WAVE
+                        </button>
+                        <button id="add-chirp-btn" class="action-button" style="flex: 1; margin-top: 0;">
+                            <span class="material-symbols-outlined">add</span> CHIRP
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -85,7 +90,7 @@
                     <div class="control-group" id="width-control-1">
                         <div class="control-label" id="width-label-1">Window Width</div>
                         <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="window-width-slider" min="0.05" max="1.0"
+                            <input type="range" class="compact-range" id="window-width-slider" min="0.05" max="2.0"
                                 step="0.05" value="0.2">
                         </div>
                         <div id="window-width-display" class="component-value">0.20s</div>
@@ -98,7 +103,7 @@
                     <div class="control-group hidden" id="width-control-2" style="display:none;">
                         <div class="control-label">Window Width 2</div>
                         <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="window-width-2-slider" min="0.05" max="1.0"
+                            <input type="range" class="compact-range" id="window-width-2-slider" min="0.05" max="2.0"
                                 step="0.05" value="0.5">
                         </div>
                         <div id="window-width-2-display" class="component-value">0.50s</div>

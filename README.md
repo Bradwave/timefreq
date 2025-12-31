@@ -1,21 +1,24 @@
-# Fourier 3D
+# Time-Frequency Analysis (STFT)
 
-An interactive visualization to explore signal decomposition and 3D frequency representations.
+An interactive visualization tool for exploring Time-Frequency analysis, Spectrograms, and various types of signal transforms.
 
-## How it works
+## Overview
 
-**Craft your signal** by mixing wave components—think of them as musical notes. Use envelopes to shape how their volume evolves over time.
-
-The **Fourier Transform** decomposes this signal, visualized as a stunning complex curve in 3D. The **Magnitude Plot** `|F(w)|` shows the strength of each frequency.
-
-Check out the **Winding Plot** to see the math in action: your signal is wrapped around the origin at a specific frequency. The center of mass corresponds to the transform value!
+This application visualizes how the frequency content of a signal evolves over time, utilizing the **Short-Time Fourier Transform (STFT)** and other advanced time-frequency distributions. Unlike the standard Fourier Transform which provides global frequency information, these methods reveal local frequency dynamics, making them essential for analyzing non-stationary signals.
 
 ## Features
 
-- **Interactive Signal Construction**: add multiple sine waves with adjustable frequency and amplitude.
-- **Real-time Visualization**: see changes instantly in the time domain, winding plot, and 3D transform view.
-- **3D Fourier Transform**: rotate and explore the 3D representation of the fourier transform.
-- **Audio Playback**: listen to the generated signals (frequency scaled for audibility).
+-   **Signal Construction**: Craft complex signals by mixing multiple wave components (Sine, Square, Triangle, Sawtooth).
+-   **Envelopes**: Shape the amplitude of each component over time using Gaussian, ADSR, or Square envelopes.
+-   **Interactive Spectrogram**: A real-time heatmap visualization (Time vs. Frequency vs. Magnitude) with zoom and pan capabilities.
+-   **Advanced Transforms**:
+    -   **Gabor (Standard STFT)**: Uses a fixed Gaussian window.
+    -   **Double Gabor**: Multiplies two Gabor transforms with different window widths to sharpen joint localization.
+    -   **Wavelet (Approximated)**: Simulate multi-resolution analysis using wide windows for low frequencies and narrow windows for high frequencies.
+    -   **Wigner-Ville**: High-resolution distribution (Pseudo Wigner-Ville) that minimizes blurring but may introduce interference terms.
+    -   **Chirplet**: Extends Gabor with a "chirp" parameter to rotate the time-frequency tiling, ideal for sweeping signals.
+-   **Window Functions**: Switch between Gaussian (smooth, low leakage) and Square (sharp time, high leakage) windows.
+-   **Audio Playback**: Listen to your generated signal with adjustable frequency modulation.
 
 ## Development
 
