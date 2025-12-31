@@ -604,7 +604,7 @@ input.double-slider-input::-moz-range-thumb:hover,
 }
 
 .segmented-control.envelope-type-control {
-    width: 140px;
+    width: auto;
     margin: 0;
 }
 

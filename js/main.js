@@ -116,6 +116,12 @@ const elements = {
     widthLabel1: document.getElementById('width-label-1'),
     
     stftTimeResSlider: document.getElementById('stft-time-res-slider'),
+    // STFT Controls
+    transformSelect: document.getElementById('transform-type-select'),
+    transformDesc: document.getElementById('transform-desc'),
+    transformSettings: document.getElementById('transform-settings-container'),
+    
+    stftTimeResSlider: document.getElementById('stft-time-res-slider'),
     stftTimeResDisplay: document.getElementById('stft-time-res-display'),
     
     canvases: {
@@ -189,7 +195,7 @@ function syncGlobalControls() {
         elements.chirpRateDisplay.innerText = state.chirpRate;
     }
 
-    setWindowType(state.windowType);
+    // setWindowType(state.windowType); // Redundant, handled by updateTransformUI
     
     // Sync Res Controls
     if(elements.stftTimeResSlider) {
@@ -314,21 +320,52 @@ window.setFFTSize = (size) => {
 // Window Type
 window.setWindowType = (type) => {
     state.windowType = type;
-    document.querySelectorAll('.segmented-option').forEach(el => el.classList.remove('active'));
-    // Manual Update of UI classes since unique ID might conflict if reused
-    const btnG = document.getElementById('window-gaussian');
-    const btnS = document.getElementById('window-square');
-    if(type === 'gaussian' && btnG) btnG.classList.add('active');
-    if(type === 'square' && btnS) btnS.classList.add('active');
-    drawWindowPreview();
+    // Dynamic UI Update matches state
+    updateTransformUI();
     saveState();
 }
 
+// Helper for Window Type 2
+window.setWindowType2 = (type) => {
+    state.windowType2 = type;
+    // Manual Update of UI classes
+    // Since we re-inject HTML often, this might be redundant if we re-render.
+    // But for responsiveness, let's just re-render UI.
+    updateTransformUI(); 
+    saveState();
+};
+
+window.setWindowWidth = (val) => {
+    state.windowWidth = parseFloat(val);
+    const disp = document.getElementById('win-width-disp');
+    if(disp) disp.innerText = state.windowWidth.toFixed(3) + 's';
+    drawWindowPreview();
+    saveState();
+};
+
+window.setWindowWidth2 = (val) => {
+    state.windowWidth2 = parseFloat(val);
+    const disp = document.getElementById('win-width-disp-2');
+    if(disp) disp.innerText = state.windowWidth2.toFixed(3) + 's';
+    drawWindowPreview();
+    saveState();
+};
+
+window.setChirpRate = (val) => {
+    state.chirpRate = parseFloat(val);
+    const disp = document.getElementById('chirp-rate-display');
+    if(disp) disp.innerText = state.chirpRate;
+    saveState();
+};
+
 function drawWindowPreview() {
     // Re-fetch elements to be safe
+    // Re-fetch elements to be safe
     let canvas = elements.windowPreviewCanvas;
-    if(canvas && !elements.ctx.windowPreview) elements.ctx.windowPreview = canvas.getContext('2d');
     
+    // Check if detached
+    if(canvas && !document.body.contains(canvas)) canvas = null;
+
     if(!canvas) {
         canvas = document.getElementById('window-preview-canvas');
         if(canvas) {
@@ -336,6 +373,8 @@ function drawWindowPreview() {
             elements.ctx.windowPreview = canvas.getContext('2d');
         }
     }
+    
+    if(canvas && !elements.ctx.windowPreview) elements.ctx.windowPreview = canvas.getContext('2d');
     
     if(!canvas || !elements.ctx.windowPreview) return;
     
@@ -382,7 +421,9 @@ function drawWindowPreview() {
                  c2.height = rect2.height * dpr;
                  ctx2.scale(dpr,dpr);
                  ctx2.clearRect(0,0, rect2.width, rect2.height);
-                 drawWindowCurve(ctx2, rect2.width, rect2.height, state.windowWidth2, effectiveType, false);
+                 // FIX: Pass windowType2
+                 const type2 = state.windowType2 || 'gaussian';
+                 drawWindowCurve(ctx2, rect2.width, rect2.height, state.windowWidth2, type2, false);
              }
          }
     }
@@ -410,10 +451,16 @@ function drawWindowCurve(ctx, w, h, widthSecs, type, isChirp) {
          let val = 0;
          const x = i - mid;
          
-         if(type === 'square') {
+        if(type === 'square') {
              // Square width in pixels
              const halfW = ((widthSecs / maxSecs) * w) / 2;
              val = (Math.abs(x) <= halfW) ? 1.0 : 0.0;
+         } else if (type === 'hann') {
+             const halfW = ((widthSecs / maxSecs) * w) / 2;
+             if (Math.abs(x) <= halfW) {
+                 const tNorm = (x + halfW) / (2 * halfW); // 0 to 1
+                 val = 0.5 * (1 - Math.cos(2 * Math.PI * tNorm));
+             } else { val = 0; }
          } else {
              // Gaussian
              val = Math.exp(-(x*x)/(2*sigmaPixels*sigmaPixels));
@@ -647,6 +694,7 @@ function renderComponentsUI() {
                         <div class="segmented-control envelope-type-control">
                             <div class="segmented-option ${comp.envelopeType === 'gaussian' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'gaussian')">GAUSS</div>
                             <div class="segmented-option ${comp.envelopeType === 'adsr' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'adsr')">ADSR</div>
+                            <div class="segmented-option ${comp.envelopeType === 'hann' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'hann')">HANN</div>
                             <div class="segmented-option ${comp.envelopeType === 'square' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'square')">SQR</div>
                         </div>
                     </div>
@@ -672,6 +720,8 @@ function getEnvelopeControls(comp) {
     } else if (comp.envelopeType === 'adsr') {
         const p = comp.envelopeParams.adsr;
         return `<div class="param-col"><input type="range" min="0" max="1" step="0.01" value="${p.a}" oninput="updateEnvParam('${comp.id}', 'adsr', 'a', this.value)"><span class="param-label">A</span></div><div class="param-col"><input type="range" min="0" max="1" step="0.01" value="${p.d}" oninput="updateEnvParam('${comp.id}', 'adsr', 'd', this.value)"><span class="param-label">D</span></div> <div class="param-col"><input type="range" min="0" max="1" step="0.01" value="${p.s}" oninput="updateEnvParam('${comp.id}', 'adsr', 's', this.value)"><span class="param-label">S</span></div><div class="param-col"><input type="range" min="0" max="1" step="0.01" value="${p.r}" oninput="updateEnvParam('${comp.id}', 'adsr', 'r', this.value)"><span class="param-label">R</span></div>`;
+    } else if (comp.envelopeType === 'hann') {
+        return `<div class="param-col" style="grid-column: span 4; text-align: center;"><span class="param-label">HANN WINDOW (FULL DURATION)</span></div>`;
     } else {
         return `<div class="param-col" style="grid-column: span 4; text-align: center;"><span class="param-label">SQUARE ENVELOPE (FULL AMPLITUDE)</span></div>`;
     }
@@ -703,6 +753,8 @@ function getEnvelopeValue(tNorm, type, params) {
         const num = Math.pow(tNorm - p.center, 2);
         const den = 2 * Math.pow(p.width, 2);
         return Math.exp(-num / den);
+    } else if (type === 'hann') {
+        return 0.5 * (1 - Math.cos(2 * Math.PI * tNorm));
     } else if (type === 'square') {
         return 1.0;
     } else {
@@ -927,9 +979,17 @@ function animate() {
     // Compute Spectrogram based on Transform Type
     const stftData = computeSpectrogram(displaySignal, state.sampleRate, 5.0);
 
-    // Max Freq for FFT Plot   // Max Freq for FFT Plot
-    let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
-    const strictMaxFreq = Math.max(20, Math.ceil(maxCompFreq * 1.5));
+    // Auto-scale frequency logic
+    let tempMaxComp = 0;
+    state.components.forEach(c => {
+        let f = c.freq;
+        if(c.isChirp) f = Math.max(c.freqStart, c.freqEnd);
+        if(f > tempMaxComp) tempMaxComp = f;
+    });
+    
+    // Base max is 20. If component goes higher, use comp * 1.25
+    const strictMaxFreq = Math.max(20, Math.ceil(tempMaxComp * 1.25));
+
     // Check if slider needs update based on component changes
     const sliderStart = document.getElementById('freq-start-input');
     if(sliderStart && parseFloat(sliderStart.max) !== strictMaxFreq) {
@@ -939,7 +999,9 @@ function animate() {
     // Ensure view boundaries are sane
     if(state.viewAbs.endFreq > strictMaxFreq) state.viewAbs.endFreq = strictMaxFreq;
     if(state.viewAbs.startFreq > strictMaxFreq) state.viewAbs.startFreq = Math.max(0, strictMaxFreq - 10);
-    
+
+
+
     const maxDisplayFreq = state.viewAbs.endFreq > 0 ? Math.min(state.viewAbs.endFreq, strictMaxFreq) : strictMaxFreq;
 
     drawSignalPlot(elements.ctx.signal, displaySignal, elements.canvases.signal);
@@ -966,27 +1028,131 @@ function updateTransformUI(type) {
     if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width";
     
     let desc = "";
+    let html = "";
+    let title = "";
 
-    if(type === 'double_gabor') {
-        desc = "Multiplies two Gabor transforms with different window widths. Sharpens joint time-frequency localization.";
-        if(elements.widthControl2) elements.widthControl2.style.display = 'block'; // force block/flex
-        if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width 1";
-    } else if(type === 'wavelet') {
-        desc = "Continuous Wavelet Transform (Approximated). Uses wide windows for low frequencies coverage and narrow for high frequencies.";
-        if(elements.widthControl1) elements.widthControl1.style.display = 'none';
-        // Keep windowControlsGroup visible
-    } else if(type === 'wigner') {
-         desc = "Pseudo Wigner-Ville Distribution. Offers high resolution but introduces cross-term interference (ghosts) for multi-component signals.";
-         if(elements.windowControlsGroup) elements.windowControlsGroup.style.display = 'none';
-    } else if(type === 'chirplet') {
-         desc = "Chirplet Transform. Extends Gabor with a chirp parameter to rotate the time-frequency tiling, perfect for sweeping signals.";
-         if(elements.chirpControl) elements.chirpControl.style.display = 'block';
-    } else {
+
+    if (state.transformType === 'gabor') {
+        title = 'GABOR TRANSFORM SETTINGS';
         desc = "Standard Short-Time Fourier Transform (Gabor). Uses a fixed window size for the entire spectrogram.";
+        html += `
+        <div class="control-group">
+            <div class="control-label">WINDOW TYPE</div>
+            <div class="segmented-control">
+                <div class="segmented-option ${state.windowType === 'gaussian' ? 'active' : ''}" onclick="setWindowType('gaussian')">GAUSS</div>
+                <div class="segmented-option ${state.windowType === 'hann' ? 'active' : ''}" onclick="setWindowType('hann')">HANN</div>
+                <div class="segmented-option ${state.windowType === 'square' ? 'active' : ''}" onclick="setWindowType('square')">SQR</div>
+            </div>
+        </div>
+        <div class="control-group">
+            <div class="control-label">WINDOW WIDTH: <span id="win-width-disp">${state.windowWidth.toFixed(3)}s</span></div>
+            <div class="component-slider-wrapper">
+                <input type="range" class="compact-range" min="0.01" max="2.0" step="0.01" value="${state.windowWidth}" oninput="setWindowWidth(this.value)">
+            </div>
+            <div id="window-preview-container" style="margin-top: 8px;">
+                <canvas id="window-preview-canvas" width="260" height="60" style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+            </div>
+        </div>
+        `;
+    } else if (state.transformType === 'double_gabor') {
+        title = 'DOUBLE GABOR TRANSFORM SETTINGS';
+        desc = "Multiplies two Gabor transforms with different window widths. Sharpens joint time-frequency localization.";
+        html += `
+        <div class="control-group">
+            <div class="control-label">WINDOW 1 TYPE</div>
+            <div class="segmented-control">
+                <div class="segmented-option ${state.windowType === 'gaussian' ? 'active' : ''}" onclick="setWindowType('gaussian')">GAUSS</div>
+                <div class="segmented-option ${state.windowType === 'hann' ? 'active' : ''}" onclick="setWindowType('hann')">HANN</div>
+                <div class="segmented-option ${state.windowType === 'square' ? 'active' : ''}" onclick="setWindowType('square')">SQR</div>
+            </div>
+        </div>
+        <div class="control-group">
+            <div class="control-label">WINDOW 1 WIDTH: <span id="win-width-disp">${state.windowWidth.toFixed(3)}s</span></div>
+            <div class="component-slider-wrapper">
+                <input type="range" class="compact-range" min="0.01" max="2.0" step="0.01" value="${state.windowWidth}" oninput="setWindowWidth(this.value)">
+            </div>
+            <div id="window-preview-container" style="margin-top: 8px;">
+                <canvas id="window-preview-canvas" width="260" height="60" style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+            </div>
+        </div>
+        
+        <!-- Window 2 Selector -->
+        <div class="control-group">
+            <div class="control-label">WINDOW 2 TYPE</div>
+            <div class="segmented-control">
+                <div class="segmented-option ${!state.windowType2 || state.windowType2 === 'gaussian' ? 'active' : ''}" onclick="setWindowType2('gaussian')">GAUSS</div>
+                <div class="segmented-option ${state.windowType2 === 'hann' ? 'active' : ''}" onclick="setWindowType2('hann')">HANN</div>
+                <div class="segmented-option ${state.windowType2 === 'square' ? 'active' : ''}" onclick="setWindowType2('square')">SQR</div>
+            </div>
+        </div>
+        <div class="control-group">
+            <div class="control-label">WINDOW 2 WIDTH: <span id="win-width-disp-2">${(state.windowWidth2 || 0.05).toFixed(3)}s</span></div>
+            <div class="component-slider-wrapper">
+                <input type="range" class="compact-range" min="0.01" max="2.0" step="0.01" value="${state.windowWidth2 || 0.05}" oninput="setWindowWidth2(this.value)">
+            </div>
+            <div id="window-preview-container-2" style="margin-top: 8px;">
+                <canvas id="window-preview-canvas-2" width="260" height="60" style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+            </div>
+        </div>
+        `;
+    } else if (state.transformType === 'wavelet') {
+        title = 'WAVELET TRANSFORM SETTINGS';
+        desc = "Continuous Wavelet Transform (Approximated). Uses wide windows for low frequencies coverage and narrow for high frequencies.";
+         html += `
+        <div class="control-group">
+            <div class="control-label">WINDOW TYPE</div>
+            <div class="segmented-control">
+                <div class="segmented-option ${state.windowType === 'gaussian' ? 'active' : ''}" onclick="setWindowType('gaussian')">GAUSS</div>
+                <div class="segmented-option ${state.windowType === 'hann' ? 'active' : ''}" onclick="setWindowType('hann')">HANN</div>
+                <div class="segmented-option ${state.windowType === 'square' ? 'active' : ''}" onclick="setWindowType('square')">SQR</div>
+            </div>
+        </div>
+        `;
+    } else if (state.transformType === 'chirplet') {
+        title = 'CHIRPLET TRANSFORM SETTINGS';
+        desc = "Chirplet Transform. Extends Gabor with a chirp parameter to rotate the time-frequency tiling, perfect for sweeping signals.";
+         html += `
+        <div class="control-group">
+            <div class="control-label">WINDOW TYPE</div>
+            <div class="segmented-control">
+                <div class="segmented-option ${state.windowType === 'gaussian' ? 'active' : ''}" onclick="setWindowType('gaussian')">GAUSS</div>
+                <div class="segmented-option ${state.windowType === 'hann' ? 'active' : ''}" onclick="setWindowType('hann')">HANN</div>
+                <div class="segmented-option ${state.windowType === 'square' ? 'active' : ''}" onclick="setWindowType('square')">SQR</div>
+            </div>
+        </div>
+        <div class="control-group">
+            <div class="control-label">CHIRP RATE: <span id="chirp-rate-display">${state.chirpRate || 0}</span></div>
+            <div class="component-slider-wrapper">
+                <input type="range" class="compact-range" min="-50" max="50" step="1" value="${state.chirpRate || 0}" oninput="setChirpRate(this.value)">
+            </div>
+        </div>
+        `;
+    } else if (state.transformType === 'wigner') {
+        title = 'WIGNER-VILLE SETTINGS';
+        desc = "Pseudo Wigner-Ville Distribution. Offers high resolution but introduces cross-term interference (ghosts) for multi-component signals. Uses a Gaussian window.";
+        html += `
+        <div class="control-group">
+            <div class="control-label">WINDOW WIDTH: <span id="win-width-disp">${state.windowWidth.toFixed(3)}s</span></div>
+            <div class="component-slider-wrapper">
+                <input type="range" class="compact-range" min="0.01" max="2.0" step="0.01" value="${state.windowWidth}" oninput="setWindowWidth(this.value)">
+            </div>
+            <div id="window-preview-container" style="margin-top: 8px;">
+                <canvas id="window-preview-canvas" width="260" height="60" style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+            </div>
+        </div>`;
     }
-    
-    if(elements.transformDesc) elements.transformDesc.innerText = desc;
-    drawWindowPreview(); // Updates visibility of 2nd canvas potentially via CSS, but we need to draw it.
+
+    // Inject HTML
+    if (elements.transformSettings) elements.transformSettings.innerHTML = html;
+    if (elements.transformDesc) elements.transformDesc.innerText = desc;
+
+    // Clear detached element references so they are re-fetched
+    elements.windowPreviewCanvas = null;
+    elements.windowPreviewCanvas2 = null;
+    elements.ctx.windowPreview = null;
+    elements.ctx.windowPreview2 = null;
+
+    drawWindowPreview(); 
 }
 
 // Master Compute Function
@@ -1010,12 +1176,16 @@ function computeSpectrogram(signalBuffer, sampleRate, duration) {
 
 // 1. Standard Gabor (STFT)
 // Refactored from previous computeSTFT
-function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChirp) {
+// 1. Standard Gabor (STFT)
+// Refactored from previous computeSTFT
+function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChirp, customType) {
     const numCols = state.stftTimeRes || 200;
     const N_FFT = state.stftFreqRes || 256;
     const stftData = [];
     
     const wWidthSeconds = customWidth !== undefined ? customWidth : state.windowWidth;
+    const activeWindowType = customType !== undefined ? customType : state.windowType;
+
     let wSamples = Math.floor(wWidthSeconds * sampleRate);
     if(wSamples % 2 === 0) wSamples++; // force odd for centering
 
@@ -1026,12 +1196,12 @@ function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChi
     
     const center = Math.floor(wSamples / 2);
 
-    if(state.windowType === 'square' && !complexWindow) {
+    if(activeWindowType === 'square' && !complexWindow) {
         winFunc.fill(1.0);
     } else {
         // Gaussian base
         // If square selected with chirp, we just use square * chirp
-        const isGauss = (state.windowType === 'gaussian');
+        const isGauss = (activeWindowType === 'gaussian');
         const sigma = wSamples / 6; 
         
         for(let i=0; i<wSamples; i++) {
@@ -1039,7 +1209,15 @@ function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChi
             const t = x / sampleRate; // Time in seconds
             
             let val = 1.0;
-            if(isGauss) val = Math.exp(-(x*x)/(2*sigma*sigma));
+            if (activeWindowType === 'hann') {
+                // Hann: 0.5 * (1 - cos(2*pi*n/(N-1)))?
+                // Standard: for 0 to N-1.
+                // Our loop is 0 to wSamples-1.
+                // val = 0.5 * (1 - Math.cos(2 * Math.PI * i / (wSamples - 1)));
+                val = 0.5 * (1 - Math.cos(2 * Math.PI * i / (wSamples - 1)));
+            } else if (isGauss) {
+                val = Math.exp(-(x*x)/(2*sigma*sigma));
+            }
             
             if(complexWindow) {
                 // Chirp: exp( j * rate * t^2 )
@@ -1111,7 +1289,7 @@ function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChi
 // Compute Gabor(w1) and Gabor(w2), then multiply magnitudes
 function computeDoubleGabor(signalBuffer, sampleRate, duration) {
     const d1 = computeGabor(signalBuffer, sampleRate, duration, state.windowWidth);
-    const d2 = computeGabor(signalBuffer, sampleRate, duration, state.windowWidth2);
+    const d2 = computeGabor(signalBuffer, sampleRate, duration, state.windowWidth2, undefined, state.windowType2 || 'gaussian');
     
     const numCols = d1.length;
     if(numCols === 0) return [];
