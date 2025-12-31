@@ -49,11 +49,14 @@ const state = {
     isSidebarCollapsed: false,
     
     // STFT Specific
+    transformType: 'gabor', // 'gabor', 'double_gabor', 'wavelet', 'wigner', 'chirplet'
     windowType: 'gaussian', // 'gaussian' | 'square'
-    windowWidth: 0.2,
+    windowWidth: 0.2, // Primary Window
+    windowWidth2: 0.5, // Secondary Window (Double)
+    chirpRate: 0, // Chirp Rate
     spectrogramLogScale: false,
-    stftTimeRes: 400, // Number of time columns. Previously hardcoded 200.
-    stftFreqRes: 512, // Signal FFT Size. Previously hardcoded 256.
+    stftTimeRes: 400, 
+    stftFreqRes: 512, 
 
     // Memory Optimization Buffers (From F3D)
     buffers: {
@@ -87,9 +90,24 @@ const elements = {
     fftSmoothingToggle: document.getElementById('fft-smoothing-toggle'),
     
     // STFT Controls
+    transformSelect: document.getElementById('transform-type-select'),
     windowWidthSlider: document.getElementById('window-width-slider'),
     windowWidthDisplay: document.getElementById('window-width-display'),
     windowPreviewCanvas: document.getElementById('window-preview-canvas'),
+    
+    // New Controls
+    windowWidth2Slider: document.getElementById('window-width-2-slider'),
+    windowWidth2Display: document.getElementById('window-width-2-display'),
+    chirpRateSlider: document.getElementById('chirp-rate-slider'),
+    chirpRateDisplay: document.getElementById('chirp-rate-display'),
+    
+    // Visibility Groups
+    windowControlsGroup: document.getElementById('window-controls-group'),
+    widthControl1: document.getElementById('width-control-1'),
+    widthControl2: document.getElementById('width-control-2'),
+    chirpControl: document.getElementById('chirp-control'),
+    widthLabel1: document.getElementById('width-label-1'),
+    
     stftTimeResSlider: document.getElementById('stft-time-res-slider'),
     stftTimeResDisplay: document.getElementById('stft-time-res-display'),
     
@@ -140,6 +158,21 @@ function syncGlobalControls() {
         elements.windowWidthSlider.value = state.windowWidth;
         elements.windowWidthDisplay.innerText = state.windowWidth.toFixed(2) + 's';
     }
+    
+    // Restore new params
+    if(state.transformType) {
+        if(elements.transformSelect) elements.transformSelect.value = state.transformType;
+        updateTransformUI(state.transformType);
+    }
+    if(elements.windowWidth2Slider) { 
+        elements.windowWidth2Slider.value = state.windowWidth2; 
+        elements.windowWidth2Display.innerText = state.windowWidth2.toFixed(2) + 's';
+    }
+    if(elements.chirpRateSlider) {
+        elements.chirpRateSlider.value = state.chirpRate;
+        elements.chirpRateDisplay.innerText = state.chirpRate;
+    }
+
     setWindowType(state.windowType);
     
     // Sync Res Controls
@@ -231,6 +264,9 @@ function loadState() {
             if (parsed.viewAbs) state.viewAbs = parsed.viewAbs;
             if (parsed.windowType) state.windowType = parsed.windowType;
             if (parsed.windowWidth) state.windowWidth = parsed.windowWidth;
+            if (parsed.windowWidth2) state.windowWidth2 = parsed.windowWidth2;
+            if (parsed.transformType) state.transformType = parsed.transformType;
+            if (parsed.chirpRate !== undefined) state.chirpRate = parsed.chirpRate;
             if (parsed.spectrogramLogScale !== undefined) state.spectrogramLogScale = parsed.spectrogramLogScale;
             if (parsed.stftTimeRes) state.stftTimeRes = parsed.stftTimeRes;
             if (parsed.stftFreqRes) state.stftFreqRes = parsed.stftFreqRes;
@@ -726,11 +762,11 @@ function animate() {
     const fftOutBuf = ensureObjectArray(state.buffers.fftOutput, N_FFT, () => ({ re: 0, im: 0 }));
     let fftResult = fft(complexSignal, fftOutBuf, N_FFT);
 
-    // 2. STFT Computing
-    const stftData = computeSTFT(displaySignal, state.sampleRate, 5.0);
-
     // 3. Drawing
-    // Max Freq for FFT Plot
+    // Compute Spectrogram based on Transform Type
+    const stftData = computeSpectrogram(displaySignal, state.sampleRate, 5.0);
+
+    // Max Freq for FFT Plot   // Max Freq for FFT Plot
     let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
     const strictMaxFreq = Math.max(20, Math.ceil(maxCompFreq * 1.5));
     // Check if slider needs update based on component changes
@@ -750,71 +786,143 @@ function animate() {
     drawSpectrogram(elements.ctx.spectrogram, stftData, elements.canvases.spectrogram, maxDisplayFreq);
 }
 
-// STFT Core
-// Only recompute when signal changes? For now run every frame for simplicity
-function computeSTFT(signalBuffer, sampleRate, duration) {
-    const numCols = state.stftTimeRes || 200; // Variable Time Resolution
-    const N_FFT = state.stftFreqRes || 256;   // Variable Freq Resolution
-    const stftData = []; 
+// ----------------------------------------------------
+// TRANSFORMS & SPECTROGRAM COMPUTATION
+// ----------------------------------------------------
+
+window.setTransformType = (type) => {
+    state.transformType = type;
+    updateTransformUI(type);
+    saveState();
+};
+
+function updateTransformUI(type) {
+    // Defaults
+    if(elements.windowControlsGroup) elements.windowControlsGroup.style.display = 'flex';
+    if(elements.widthControl1) elements.widthControl1.style.display = 'flex';
+    if(elements.widthControl2) elements.widthControl2.style.display = 'none';
+    if(elements.chirpControl) elements.chirpControl.style.display = 'none';
+    if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width";
+
+    if(type === 'double_gabor') {
+        if(elements.widthControl2) elements.widthControl2.style.display = 'flex';
+        if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width 1";
+    } else if(type === 'wavelet') {
+        // Wavelet logic actually uses window width as 'Base Scale' maybe?
+        // Or we just use it as 'sigma at f0'. 
+        // Hide window selection (force Morlet/Gaussian basically) or keep it as generic envelope?
+        // Let's keep generic for now.
+    } else if(type === 'wigner') {
+         // Uses smoothing window
+    } else if(type === 'chirplet') {
+         if(elements.chirpControl) elements.chirpControl.style.display = 'flex';
+    }
+}
+
+// Master Compute Function
+function computeSpectrogram(signalBuffer, sampleRate, duration) {
+    if(!signalBuffer || signalBuffer.length === 0) return [];
     
-    const wWidthSeconds = state.windowWidth;
-    const wSamples = Math.floor(wWidthSeconds * sampleRate);
+    switch(state.transformType) {
+        case 'double_gabor':
+            return computeDoubleGabor(signalBuffer, sampleRate, duration);
+        case 'wavelet':
+            return computeWavelet(signalBuffer, sampleRate, duration);
+        case 'wigner':
+           return computeWignerVille(signalBuffer, sampleRate, duration);
+        case 'chirplet':
+           return computeChirplet(signalBuffer, sampleRate, duration);
+        case 'gabor':
+        default:
+            return computeGabor(signalBuffer, sampleRate, duration);
+    }
+}
+
+// 1. Standard Gabor (STFT)
+// Refactored from previous computeSTFT
+function computeGabor(signalBuffer, sampleRate, duration, customWidth, customChirp) {
+    const numCols = state.stftTimeRes || 200;
+    const N_FFT = state.stftFreqRes || 256;
+    const stftData = [];
     
+    const wWidthSeconds = customWidth !== undefined ? customWidth : state.windowWidth;
+    let wSamples = Math.floor(wWidthSeconds * sampleRate);
+    if(wSamples % 2 === 0) wSamples++; // force odd for centering
+
     // Precompute Window
     const winFunc = new Float32Array(wSamples);
-    if(state.windowType === 'square') {
+    const complexWindow = (customChirp && customChirp !== 0);
+    const winFuncIm = complexWindow ? new Float32Array(wSamples) : null;
+    
+    const center = Math.floor(wSamples / 2);
+
+    if(state.windowType === 'square' && !complexWindow) {
         winFunc.fill(1.0);
     } else {
-        // Gaussian
+        // Gaussian base
+        // If square selected with chirp, we just use square * chirp
+        const isGauss = (state.windowType === 'gaussian');
         const sigma = wSamples / 6; 
-        const center = wSamples / 2;
+        
         for(let i=0; i<wSamples; i++) {
-            const x = i - center;
-            winFunc[i] = Math.exp(-(x*x)/(2*sigma*sigma));
+            const x = i - center; // Time relative to center in samples
+            const t = x / sampleRate; // Time in seconds
+            
+            let val = 1.0;
+            if(isGauss) val = Math.exp(-(x*x)/(2*sigma*sigma));
+            
+            if(complexWindow) {
+                // Chirp: exp( j * rate * t^2 )
+                // rate is Hz/s? Or generic rate. 
+                // state.chirpRate is roughly -50 to 50.
+                // Let's scale it to be meaningful.
+                // Phase phi = k * t^2. Freq = dphi/dt = 2kt.
+                // If rate=50 means 50Hz sweep over 1s?
+                // Scale factor: chirpRate * 100 * PI ?
+                const phase = state.chirpRate * 500 * t * t;
+                winFunc[i] = val * Math.cos(phase);
+                winFuncIm[i] = val * Math.sin(phase);
+            } else {
+                winFunc[i] = val;
+            }
         }
     }
 
-    // Use strictly the visual duration (5.0s) for calculation
     const numSamples = Math.floor(duration * sampleRate);
     const stepSize = numSamples / numCols;
-    const fftIn = new Float32Array(N_FFT);
-    // const fftOut = new Float32Array(N_FFT * 2);
+    
+    // Buffers
+    if(!state.buffers.stftInput || state.buffers.stftInput.length < N_FFT) state.buffers.stftInput = [];
+    if(!state.buffers.stftOutput || state.buffers.stftOutput.length < N_FFT) state.buffers.stftOutput = [];
+    const stftInput = ensureObjectArray(state.buffers.stftInput, N_FFT, ()=>({re:0, im:0}));
+    const stftOutput = ensureObjectArray(state.buffers.stftOutput, N_FFT, ()=>({re:0, im:0}));
 
     for(let t=0; t<numCols; t++) {
         const centerIdx = Math.floor(t * stepSize);
-        const startIdx = centerIdx - Math.floor(wSamples/2);
+        const startIdx = centerIdx - center;
         
-        fftIn.fill(0);
+        // Reset Input
+        for(let i=0; i<N_FFT; i++) { stftInput[i].re = 0; stftInput[i].im = 0; }
         
         // Windowing
-        for(let i=0; i<wSamples; i++) {
+        const copyLen = Math.min(N_FFT, wSamples);
+        // Center window in FFT buffer? Or start at 0?
+        // Ideally center window at 0 (circular shift), but standard mag spectrogram doesn't care about phase shift much.
+        // Simple copy to 0.
+        
+        for(let i=0; i<copyLen; i++) {
             const sigIdx = startIdx + i;
             if(sigIdx >= 0 && sigIdx < numSamples && sigIdx < signalBuffer.length) {
-                const val = signalBuffer[sigIdx].val * winFunc[i];
-                if(i < N_FFT) {
-                   fftIn[i] = val;
+                const sVal = signalBuffer[sigIdx].val;
+                if(complexWindow) {
+                    // (sig * (wr + j*wi)) = sig*wr + j*sig*wi
+                    stftInput[i].re = sVal * winFunc[i];
+                    stftInput[i].im = sVal * winFuncIm[i];
+                } else {
+                    stftInput[i].re = sVal * winFunc[i];
                 }
             }
         }
-        
-        // We reuse the basic fft function, but it expects [{re,im}]. 
-        // Our 'fft' function is optimized for object arrays however. 
-        // We should make a lightweight fft or adapt the input. 
-        // Adapting input to [{re,im}] for every column is slow (allocations).
-        // Let's create a temp object buffer for STFT FFT.
-        
-        // Since N_FFT can change, we can't reliably reuse a single static buffer unless we resize/check it.
-        // Quick Fix: Check size.
-        if(!state.buffers.stftInput || state.buffers.stftInput.length < N_FFT) state.buffers.stftInput = [];
-        const stftInput = ensureObjectArray(state.buffers.stftInput, N_FFT, ()=>({re:0, im:0}));
-        
-        for(let i=0; i<N_FFT; i++) {
-            stftInput[i].re = fftIn[i];
-            stftInput[i].im = 0;
-        }
-        
-        if(!state.buffers.stftOutput || state.buffers.stftOutput.length < N_FFT) state.buffers.stftOutput = [];
-        const stftOutput = ensureObjectArray(state.buffers.stftOutput, N_FFT, ()=>({re:0, im:0}));
         
         fft(stftInput, stftOutput, N_FFT);
 
@@ -828,6 +936,210 @@ function computeSTFT(signalBuffer, sampleRate, duration) {
     }
     return stftData;
 }
+
+// 2. Double Gabor
+// Compute Gabor(w1) and Gabor(w2), then multiply magnitudes
+function computeDoubleGabor(signalBuffer, sampleRate, duration) {
+    const d1 = computeGabor(signalBuffer, sampleRate, duration, state.windowWidth);
+    const d2 = computeGabor(signalBuffer, sampleRate, duration, state.windowWidth2);
+    
+    const numCols = d1.length;
+    if(numCols === 0) return [];
+    const numRows = d1[0].length;
+    
+    // Result in d1
+    for(let i=0; i<numCols; i++) {
+        for(let j=0; j<numRows; j++) {
+            // Geometric mean or just product? 
+            // Product makes it very sharp (like joint distribution).
+            // Normalize?
+            // Let's take sqrt(d1 * d2) to keep units roughly same linear amplitude
+            d1[i][j] = Math.sqrt(d1[i][j] * d2[i][j]);
+        }
+    }
+    return d1;
+}
+
+// 3. Chirplet
+function computeChirplet(signalBuffer, sampleRate, duration) {
+    // Just Gabor with chirp param
+    return computeGabor(signalBuffer, sampleRate, duration, state.windowWidth, state.chirpRate);
+}
+
+// 4. Wavelet (Simulated via STFT with Freq-Dependent Window)
+// "True" CWT would iterate scales. We want to map to Linear Grid N_FFT.
+// We can approximate this by summing Gabor transforms of different widths? No that's slow.
+// We can do a Gabor Transform but adaptively smear?
+// Correct CWT approach on Grid:
+// For each frequency bin f_k (linear grid):
+//   Compute CWT coefficient at scale a = f0/f_k.
+//   This is a convolution of signal with Wavelet(scale a).
+//   We can do this via FFT convolution for specific scales.
+// BUT doing this for 256 or 512 linear bins is VERY slow (512 FFTs).
+// Optimization: STFT is just a filterbank with Constant Bandwidth.
+// CWT is Constant Q.
+// Let's fake it nicely or implementing a "Fast CWT" for visualization?
+// Or we implement a proper CWT on a Log frequency grid, then interpolate to Linear?
+// Actually we can implement the "Wavelet" display as simply:
+// Just run 3 STFTs (Wide, Medium, Narrow) and blend them based on Frequency?
+// Low Freqs -> Use Wide Window STFT data.
+// High Freqs -> Use Narrow Window STFT data.
+// Phase matching issues...
+// Let's try the Blending Approach:
+// STFT_Wide (Window 0.5s)
+// STFT_Narrow (Window 0.05s)
+// Result[f] = blend(STFT_Wide[f], STFT_Narrow[f], factor(f))
+// This provides the visual benefit of multiresolution without O(N^2) cost.
+
+function computeWavelet(signalBuffer, sampleRate, duration) {
+    // Multiresolution approximation
+    // Compute Low Res (Wide Window) for Low Freqs
+    // Compute High Res (Narrow Window) for High Freqs
+    
+    const wWide = 0.5; // Good for low freqs
+    const wNarrow = 0.05; // Good for high freqs
+    
+    const dWide = computeGabor(signalBuffer, sampleRate, duration, wWide);
+    const dNarrow = computeGabor(signalBuffer, sampleRate, duration, wNarrow);
+    
+    const numCols = dWide.length;
+    if(numCols === 0) return [];
+    const numRows = dWide[0].length; // N_FFT / 2
+    
+    // Nyquist = sampleRate / 2.
+    // Row k corresponds to f = k * (Fs / N_FFT).
+    // Blend Factor. 
+    // Low Freqs (k small) -> Use Wide.
+    // High Freqs (k large) -> Use Narrow.
+    
+    for(let i=0; i<numCols; i++) {
+        for(let k=0; k<numRows; k++) {
+            // Simple linear blend or sigmoid?
+            // Midpoint where we switch? e.g. 100Hz?
+            // Let's say we transition over the spectrum.
+            const ratio = k / numRows; 
+            // Bias towards Wide for bottom (lower k)
+            // Bias towards Narrow for top (higher k)
+            // Let's use sqrt interp to be smooth
+            const alpha = Math.sqrt(ratio); // 0 at DC, 1 at Nyquist
+            
+            dWide[i][k] = (1-alpha)*dWide[i][k] + alpha*dNarrow[i][k];
+        }
+    }
+    return dWide;
+}
+
+
+// 5. Smoothed Pseudo Wigner-Ville
+// SPWVD(t, f) = Integral( h(tau) * Integral( g(u-t) * x(u+tau/2) * x*(u-tau/2) du ) * exp(-j2pi f tau) dtau )
+// Simplified Pseudo Wigner Ville (no frequency smoothing g(u)=delta):
+// PWVD(t, f) = Integral( h(tau) * x(t+tau/2) * x*(t-tau/2) * exp(-j...) )
+// Ideally we need analytic signal to avoid interference terms at DC/Nyquist (aliasing).
+// Analytic Signal x_a = x + jH(x).
+function computeWignerVille(signalBuffer, sampleRate, duration) {
+    // 1. Compute Analytic Signal (Approximation or via Global FFT)
+    // Global FFT approach is best if we have the full buffer.
+    const numSamples = Math.floor(duration * sampleRate);
+    
+    // Only compute if we have a buffer
+    // For performance, maybe skip analytic and just use real? 
+    // Real WVD has cross terms between +f and -f (at DC). 
+    // Let's try Real first for speed. If cross terms are bad, we'll fix.
+    
+    const numCols = state.stftTimeRes || 200;
+    const N_FFT = state.stftFreqRes || 256;
+    const stftData = [];
+    
+    // Window h(tau)
+    const wWidthSeconds = state.windowWidth;
+    let wSamples = Math.floor(wWidthSeconds * sampleRate); 
+    if(wSamples % 2 === 0) wSamples++;
+    const halfW = Math.floor(wSamples/2);
+    
+    // Precompute Window
+    const winFunc = new Float32Array(wSamples);
+    const sigma = wSamples / 6;
+    for(let i=0; i<wSamples; i++) {
+         const x = i - halfW;
+         winFunc[i] = Math.exp(-(x*x)/(2*sigma*sigma)); // Gaussian window
+    }
+
+    const stepSize = numSamples / numCols;
+    
+    const stftInput = ensureObjectArray(state.buffers.stftInput, N_FFT, ()=>({re:0, im:0}));
+    const stftOutput = ensureObjectArray(state.buffers.stftOutput, N_FFT, ()=>({re:0, im:0}));
+
+    for(let t=0; t<numCols; t++) {
+        const centerIdx = Math.floor(t * stepSize);
+        
+        // Compute Auto-Correlation function K[tau]
+        // K[tau] = x[t + tau] * x*[t - tau]
+        // Range of tau? -halfW to +halfW.
+        // We map tau to FFT input.
+        
+        for(let i=0; i<N_FFT; i++) { stftInput[i].re = 0; stftInput[i].im = 0; }
+        
+        // We iterate tau. 
+        // tau goes from -halfW to halfW.
+        // x takes real values.
+        
+        // N_FFT bins. 
+        // Standard WVD def: Discrete WVD often uses 2*tau steps or oversampling?
+        // Let's stick to standard k = x(n+m)x*(n-m).
+        // m from -M to M.
+        
+        const M = Math.min(halfW, Math.floor(N_FFT/2) - 1);
+        
+        // Center term (m=0)
+        if(centerIdx >=0 && centerIdx < numSamples) {
+            const val = signalBuffer[centerIdx].val;
+            stftInput[0].re = val * val * winFunc[halfW]; // m=0 window center
+        }
+        
+        for(let m=1; m<=M; m++) {
+            const idxP = centerIdx + m;
+            const idxN = centerIdx - m;
+            
+            if(idxP < numSamples && idxN >= 0 && idxP < signalBuffer.length) {
+                const valP = signalBuffer[idxP].val;
+                const valN = signalBuffer[idxN].val;
+                
+                // x(n+m) * x(n-m)
+                const prod = valP * valN;
+                
+                // Apply smoothing window h(m)
+                // Window index: halfW + m and halfW - m?
+                // Usually window is applied to the lag m.
+                const wVal = winFunc[halfW + m]; // symmetric
+                
+                const res = prod * wVal;
+                
+                // Fill symmetric FFT buffer
+                // Positive lag
+                stftInput[m].re = res;
+                // Negative lag (maps to N - m)
+                stftInput[N_FFT - m].re = res;
+            }
+        }
+        
+        fft(stftInput, stftOutput, N_FFT);
+        
+        const mag = new Float32Array(N_FFT/2);
+        for(let k=0; k<N_FFT/2; k++) {
+            // WVD is real-valued. Take Real part of FFT (Re).
+            // But due to finite window, might have small imag?
+            // Actually WVD of real signal is real.
+            // Also take abs for visualization logic (log scale etc)
+            // Cross terms are oscillatory, can be negative.
+            // Spectrogram usually shows Magnitude.
+            // Let's show abs(Real).
+            mag[k] = Math.abs(stftOutput[k].re); 
+        }
+        stftData.push(mag);
+    }
+    return stftData;
+}
+
 
 
 // ----------------------------------------------------
@@ -1367,6 +1679,22 @@ function setupListeners() {
         elements.stftTimeResSlider.addEventListener('input', (e) => {
             state.stftTimeRes = parseInt(e.target.value);
             elements.stftTimeResDisplay.innerText = state.stftTimeRes;
+            saveState();
+        });
+    }
+
+    if(elements.windowWidth2Slider) {
+        elements.windowWidth2Slider.addEventListener('input', (e) => {
+            state.windowWidth2 = parseFloat(e.target.value);
+            elements.windowWidth2Display.innerText = state.windowWidth2.toFixed(2) + 's';
+            saveState();
+        });
+    }
+
+    if(elements.chirpRateSlider) {
+        elements.chirpRateSlider.addEventListener('input', (e) => {
+            state.chirpRate = parseFloat(e.target.value);
+            elements.chirpRateDisplay.innerText = state.chirpRate;
             saveState();
         });
     }
