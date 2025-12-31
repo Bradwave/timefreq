@@ -259,7 +259,8 @@ function saveState() {
         spectrogramLogScale: state.spectrogramLogScale,
         stftTimeRes: state.stftTimeRes,
         stftFreqRes: state.stftFreqRes,
-        isSidebarCollapsed: state.isSidebarCollapsed
+        isSidebarCollapsed: state.isSidebarCollapsed,
+        collapsedSections: Array.from(document.querySelectorAll('.collapsible-content')).filter(el => !el.classList.contains('expanded')).map(el => el.id)
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
 }
@@ -296,6 +297,22 @@ function loadState() {
             if (parsed.stftTimeRes) state.stftTimeRes = parsed.stftTimeRes;
             if (parsed.stftFreqRes) state.stftFreqRes = parsed.stftFreqRes;
             if (parsed.isSidebarCollapsed !== undefined) state.isSidebarCollapsed = parsed.isSidebarCollapsed;
+
+            // Restore Collapsed Sections
+            if (parsed.collapsedSections && Array.isArray(parsed.collapsedSections)) {
+                parsed.collapsedSections.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.classList.remove('expanded');
+                        // Find toggle icon
+                        const header = document.querySelector(`.section-header-collapsible[data-target="${id}"]`);
+                        if(header) {
+                            const icon = header.querySelector('.dropdown-icon');
+                            if(icon) icon.classList.add('collapsed');
+                        }
+                    }
+                });
+            }
 
             // Clear buffers on load to prevent corruption
             state.buffers.stftInput = [];
@@ -2118,6 +2135,7 @@ function setupListeners() {
                 target.classList.toggle('expanded');
                 const icon = header.querySelector('.dropdown-icon');
                 if (icon) icon.classList.toggle('collapsed', !target.classList.contains('expanded'));
+                saveState();
             }
         });
     });
@@ -2627,5 +2645,10 @@ function drawCollapsedPreview(canvas, comp) {
     }
     ctx.stroke();
 }
+
+// Fade In
+window.addEventListener('load', () => {
+    setTimeout(() => { document.body.classList.add('loaded'); }, 50);
+});
 
 init();
