@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fourier 3D</title>
+    <title>Time-Frequency Analysis</title>
     <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -25,8 +25,8 @@
         <!-- Sidebar Controls -->
         <aside class="sidebar" id="main-sidebar">
             <header>
-                <h1>FOURIER 3D</h1>
-                <p>Signal analysis & visualization</p>
+                <h1>TIME-FREQUENCY</h1>
+                <p>STFT & Gabor Transform</p>
             </header>
 
             <!-- Signal Components (Collapsible) -->
@@ -41,9 +41,8 @@
                         <!-- Components injected here -->
                     </div>
                     <button id="add-component-btn" class="action-button">
-                        <span class="material-symbols-outlined">add</span> ADD SINE WAVE
+                        <span class="material-symbols-outlined">add</span> ADD WAVE
                     </button>
-                    <!-- Note: Real Mode Envelopes will be auto-injected in JS since we forced Real Mode -->
                 </div>
             </div>
 
@@ -62,6 +61,11 @@
                             Multiplies simulation frequency to make it audible.
                         </div>
                     </div>
+                    <!-- Master Volume -->
+                    <div class="control-group">
+                        <div class="control-label">Master Volume (<span id="master-vol-display">0.5</span>)</div>
+                        <input type="range" id="master-vol-slider" min="0" max="1" value="0.5" step="0.05">
+                    </div>
                 </div>
             </div>
 
@@ -74,13 +78,30 @@
             <div id="visualization-wrapper" class="collapsible-content expanded">
                 <div class="collapsible-inner">
 
+                    <!-- STFT Window Controls -->
+                     <div class="control-group">
+                        <div class="section-title section-title-clean" style="margin-bottom:8px;">STFT Window</div>
+                        
+                        <div class="segmented-control">
+                            <div class="segmented-option active" id="window-gaussian" onclick="setWindowType('gaussian')">Gaussian</div>
+                            <div class="segmented-option" id="window-square" onclick="setWindowType('square')">Square</div>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">Window Width (<span id="window-width-display">0.20s</span>)</div>
+                        <input type="range" id="window-width-slider" min="0.01" max="1.0" value="0.2" step="0.01">
+                        <div class="control-description">
+                            Trade-off between time and frequency resolution.
+                        </div>
+                    </div>
+
+                    <div class="divider-dashed"></div>
+
                     <div class="control-group">
                         <div class="control-label">Global amp multiplier (x<span id="global-amp-display">1.0</span>)
                         </div>
                         <input type="range" id="global-amp-slider" min="0" max="5" value="1" step="0.1">
-                        <div class="control-description">
-                            Multiplies amplitude of all components. Does not affect audio.
-                        </div>
                     </div>
 
                     <!-- Ranges -->
@@ -98,14 +119,15 @@
                     </div>
 
                     <div class="control-group control-group-spaced">
-                        <div class="control-label" id="freq-segment-label">Displayed frequencies (Auto)</div>
+                        <div class="control-label" id="freq-segment-label">Displayed frequencies (0.0Hz - Auto)</div>
                         <div class="double-slider-wrapper" id="freq-segment-slider">
                             <div class="double-slider-track"></div>
-                            <div class="double-slider-fill" id="freq-segment-fill" style="left: 0%; width: 100%;"></div>
+                            <div class="double-slider-fill" id="freq-segment-fill" style="left: 0%; width: 100%;">
+                            </div>
                             <input type="range" class="double-slider-input" id="freq-start-input" min="0" max="100"
-                                step="0.5" value="0" oninput="updateFreqSegment('start', this.value)">
+                                step="1" value="0" oninput="updateFreqSegment('start', this.value)">
                             <input type="range" class="double-slider-input" id="freq-end-input" min="0" max="100"
-                                step="0.5" value="100" oninput="updateFreqSegment('end', this.value)">
+                                step="1" value="0" oninput="updateFreqSegment('end', this.value)">
                         </div>
                     </div>
 
@@ -119,27 +141,6 @@
                     </div>
 
                     <div class="control-group control-group-row">
-                        <div class="control-label">Show rotation gizmo</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="gizmo-toggle" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="control-group control-group-row">
-                        <div class="control-label">Show Re-Im Plane</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="plane-toggle" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="divider-dashed">
-                        <div class="control-label label-small">
-                            Fourier Visualization</div>
-                    </div>
-
-                    <div class="control-group control-group-row">
                         <div class="control-label">Show real/imag components</div>
                         <label class="toggle-switch">
                             <input type="checkbox" id="reim-toggle">
@@ -147,21 +148,12 @@
                         </label>
                     </div>
 
-                    <div class="control-group control-group-row">
-                        <div class="control-label">Show 3D FT surface</div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="surface-toggle">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-
                     <!-- Advanced -->
-                    <div class="control-group sec-margin-top">
-                        <div class="control-label">Transform sampling (resolution)</div>
-                        <input type="range" id="fft-sampling-slider" min="1" max="4" value="2" step="0.5">
-                        <div class="control-description">
-                            <span class="material-symbols-outlined icon-tiny">warning</span> High resolution may cause
-                            performance issues.
+                     <div class="control-group sec-margin-top">
+                        <div class="control-label">Transform resolution (bins)</div>
+                        <input type="range" id="fft-sampling-slider" min="1" max="3" value="2" step="1">
+                         <div class="control-description">
+                            Increase for finer frequency detail.
                         </div>
                     </div>
 
@@ -175,7 +167,7 @@
                 </div>
             </div>
 
-            <div class="spacer-flex"></div> <!-- Spacer to push Reset down -->
+            <div class="spacer-flex"></div>
 
             <!-- Import / Export (Collapsible) -->
             <div class="section-header-collapsible" data-target="io-wrapper">
@@ -198,31 +190,30 @@
 
             <!-- About / Info (Collapsible) -->
             <div class="section-header-collapsible sec-margin-top" data-target="about-wrapper">
-                <div class="section-title section-title-clean">About Fourier 3D</div>
+                <div class="section-title section-title-clean">About Time-Frequency</div>
                 <span class="material-symbols-outlined dropdown-icon collapsed">expand_more</span>
             </div>
 
             <div id="about-wrapper" class="collapsible-content">
                 <div class="collapsible-inner">
                     <p class="about-text">
-                        <strong>Craft your signal</strong> by mixing wave components—think of them as musical notes. Use
-                        envelopes to shape how their volume evolves over time.
+                        This tool visualizes the <strong>Time-Frequency</strong> characteristics of a signal using the <strong>Short-Time Fourier Transform (STFT)</strong>.
                         <br><br>
-                        The <strong>Fourier Transform</strong> decomposes this signal, visualized as a stunning complex
-                        curve in 3D. The <strong>Magnitude Plot</strong> |F(w)| shows the strength of each frequency.
+                        Unlike the standard Fourier Transform which shows global frequency content, the STFT breaks the signal into small time windows to show how frequencies change over time.
                         <br><br>
-                        Check out the <strong>Winding Plot</strong> to see the math in action: your signal is wrapped
-                        around the origin at a specific frequency. The center of mass corresponds to the transform
-                        value!
+                        <strong>Spectrogram (Bottom):</strong> A heat map where the horizontal axis is Time, the vertical axis is Frequency, and color intensity represents Magnitude.
                         <br><br>
-                        <strong>Shortcuts:</strong>
+                        <strong>Window Functions:</strong>
                         <br>
-                        <span class="shortcut-key">WASD / QE</span> Rotate 3D View
+                        • <strong>Gaussian:</strong> Smooth standard deviation, minimizes spectral leakage.
                         <br>
-                        <span class="shortcut-key">Arrow Keys</span> Move Time/Freq Cursor
+                        • <strong>Square:</strong> Sharp cutoff, good time resolution but causes spectral leakage (ringing).
                         <br><br>
-                        <strong>Vibe Coded</strong> with <span
-                            class="material-symbols-outlined icon-tiny">favorite</span>
+                        <strong>Uncertainty Principle:</strong>
+                        <br>
+                        • <strong>Wide Window:</strong> Better Frequency resolution, worse Time resolution.
+                        <br>
+                        • <strong>Narrow Window:</strong> Better Time resolution, worse Frequency resolution.
                     </p>
                 </div>
             </div>
@@ -240,9 +231,8 @@
         <!-- Main Plot Area -->
         <main class="plots-wrapper">
             <!-- Top: Original Signal -->
-            <div class="plot-container plot-flex-1" id="signal-plot-container">
+            <div class="plot-container" id="signal-plot-container" style="flex: 1;">
                 <div class="plot-label">SIGNAL (TIME DOMAIN)</div>
-                <!-- Old info overlay removed -->
                 <div class="plot-controls">
                     <div class="time-label-control" id="time-info">Time: 0.50s</div>
                     <button class="icon-btn" onclick="toggleAudio()" id="btn-play-signal" title="Play signal">
@@ -252,46 +242,23 @@
                 <canvas id="signal-canvas"></canvas>
             </div>
 
-            <!-- Middle: Split View -->
-            <div class="split-plot-row plot-flex-1-5">
-                <!-- Middle Left: 3D Transform -->
-                <div class="plot-container plot-flex-1" id="transform-3d-container">
-                    <div class="plot-label">3D FOURIER TRANSFORM</div>
-                    <div class="plot-controls plot-controls-top-right">
-                        <button class="icon-btn btn-small" onclick="toggleFocusMode()" title="Toggle focus mode">
-                            <span class="material-symbols-outlined icon-small" id="focus-icon">fullscreen</span>
-                        </button>
-                    </div>
-                    <button class="reset-view-btn" onclick="resetView('3d')" title="Reset 3D View">
-                        <span class="material-symbols-outlined icon-small">center_focus_strong</span>
-                    </button>
-                    <canvas id="transform-3d-canvas" class="cursor-grab"></canvas>
-                    <div id="hint-3d" class="hint-overlay">
-                        <span class="hint-desktop">Drag to Rotate • Shift+Drag Z-Rot • Ctrl+Drag Pan • Scroll
-                            Zoom</span>
-                        <span class="hint-mobile">Drag to rotate • Pinch to zoom and pan</span>
-                    </div>
-                </div>
-
-                <!-- Middle Right: R-I Projection -->
-                <div class="plot-container plot-flex-1" id="ri-plot-container">
-                    <div class="plot-label">SIGNAL WINDING & FT PROJECTION</div>
-                    <button class="reset-view-btn" onclick="resetView('ri')" title="Reset R-I View">
-                        <span class="material-symbols-outlined icon-small">center_focus_strong</span>
-                    </button>
-                    <canvas id="ri-canvas" class="cursor-grab"></canvas>
-                    <div id="hint-ri" class="hint-overlay">
-                        <span class="hint-desktop">Drag to Pan • Scroll to Zoom</span>
-                        <span class="hint-mobile">Drag to pan • Pinch to zoom</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Bottom: Absolute Value Transform -->
-            <div class="plot-container plot-flex-1" id="mag-plot-container">
-                <div class="plot-label">FT MAGNITUDE |F(w)| (FREQUENCY DOMAIN)</div>
+            <!-- Middle: Global FFT Magnitude -->
+            <div class="plot-container" id="mag-plot-container" style="flex: 1;">
+                <div class="plot-label">GLOBAL FFT MAGNITUDE |F(w)|</div>
                 <div class="plot-info-overlay" id="freq-info">Freq: 0.0 Hz</div>
                 <canvas id="abs-transform-canvas"></canvas>
+            </div>
+
+            <!-- Bottom: Spectrogram -->
+             <div class="plot-container" id="spectrogram-container" style="flex: 1.5; position: relative;">
+                <div class="plot-label">SPECTROGRAM (STFT)</div>
+                <div class="plot-controls">
+                    <!-- Future Controls -->
+                </div>
+                <!-- Canvas for drawing spectrogram -->
+                <canvas id="spectrogram-canvas"></canvas>
+                 <!-- Transparent overlay for mouse interaction/grid if needed -->
+                <div id="spectrogram-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
             </div>
         </main>
     </div>

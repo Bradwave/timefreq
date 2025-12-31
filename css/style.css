@@ -82,21 +82,6 @@ body {
     height: 100%;
 }
 
-/* Focus Mode Adjustments */
-body.focus-mode #signal-plot-container,
-body.focus-mode #ri-plot-container {
-    display: none;
-}
-
-body.focus-mode .split-plot-row {
-    flex: 4 !important; /* give 3d plot more vertical space */
-}
-
-/* Ensure 3D plot takes full width when RI is hidden */
-body.focus-mode #transform-3d-container {
-    flex: 1;
-}
-
 /* ----------------------------------------------------------------------
    Sidebar
    ---------------------------------------------------------------------- */
@@ -689,11 +674,6 @@ canvas {
     -webkit-user-select: none;
 }
 
-.plot-controls-top-right {
-    top: 12px;
-    right: 12px;
-}
-
 .time-label-control {
     font-size: 0.65rem;
     font-weight: 700;
@@ -708,58 +688,6 @@ canvas {
     box-sizing: border-box; 
     display: flex;
     align-items: center;
-}
-
-.reset-view-btn {
-    position: absolute;
-    top: 12px;
-    right: 12px; 
-    background: rgba(255,255,255,0.9);
-    border: 1px solid var(--color-border);
-    border-radius: 8px; 
-    width: 24px;  
-    height: 24px; 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer; 
-    z-index: 20; 
-    color: var(--color-text-muted);
-    transition: all 0.2s;
-    box-sizing: border-box;
-    padding: 0;
-}
-
-.reset-view-btn span {
-    font-size: 18px; 
-}
-
-.reset-view-btn:hover {
-    color: var(--color-accent);
-    transform: scale(1.05);
-}
-
-/* Adjust reset button position for 3D container */
-#transform-3d-container .reset-view-btn {
-    right: 48px; /* Left of fullscreen button */
-    top: 12px;   /* Match controls top */
-}
-
-/* Split View Flex Container */
-.split-plot-row {
-     display: flex; 
-     gap: 24px; 
-     min-height: 250px;
-}
-
-.hint-overlay {
-    position: absolute; 
-    bottom: 8px; 
-    left: 8px; 
-    font-size: 0.65rem; 
-    color: #888; 
-    pointer-events: none; 
-    transition: opacity 0.5s;
 }
 
 /* ----------------------------------------------------------------------
@@ -798,244 +726,90 @@ button.secondary:hover {
     background: rgba(255, 255, 255, 0.9);
     border: 1px solid var(--color-border);
     border-radius: 8px; 
-    width: 24px;   
-    height: 24px;  
-    box-sizing: border-box; 
+    width: 24px;
+    height: 24px;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s;
-    color: var(--color-accent);
 }
-
-.icon-btn span {
-    font-size: 18px; 
-}
-
-/* New Utilities for Inline Style Replacement */
-.divider-dashed {
-    margin: 12px 0 8px 0; 
-    border-top: 1px dashed var(--color-border); 
-    padding-top: 8px;
-}
+.icon-tiny { font-size: 14px !important; }
 
 .divider-solid {
-    margin-top: 20px; 
-    border-top: 1px solid var(--color-border); 
-    padding-top: 20px;
+    height: 1px;
+    background: var(--color-border);
+    margin: 8px 0;
+}
+.divider-dashed {
+    border-top: 1px dashed var(--color-border);
+    margin: 16px 0;
 }
 
-.label-small {
-    font-size: 0.70rem; 
-    color: #aaa; 
-    text-transform: uppercase; 
-    letter-spacing: 1px;
+.sec-margin-top {
+    margin-top: 24px;
 }
-
 .spacer-flex {
     flex: 1;
 }
 
 .about-text {
     font-size: 0.75rem; 
-    color: var(--color-text-muted); 
-    line-height: 1.6; 
-    margin: 0;
-}
-
-.icon-tiny {
-    font-size: 10px !important; 
-    vertical-align: middle;
-}
-
-.icon-small {
-    font-size: 16px !important;
-}
-
-.btn-full-width {
-    width: 100%;
-}
-
-.btn-small {
-    width: 24px !important; 
-    height: 24px !important;
-}
-
-.plot-flex-1 {
-    flex: 1;
-}
-
-.plot-flex-1-5 {
-    flex: 1.5;
-}
-
-.cursor-grab {
-    cursor: grab;
-}
-
-.hint-mobile {
-    display: none;
-}
-.hint-desktop {
-    display: inline;
-}
-
-.text-no-margin {
+    line-height: 1.5; 
+    color: #666; 
     margin: 0;
 }
 
 /* ----------------------------------------------------------------------
    Responsiveness
    ---------------------------------------------------------------------- */
-/* Mobile Overrides */
 @media (max-width: 768px) {
     .app-container {
         display: flex;
         flex-direction: column;
-        grid-template-columns: none;
-        grid-template-rows: none;
-        height: 100vh;
-        overflow: hidden;
     }
-    
-    .plots-wrapper {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        padding: 4px;
-        gap: 4px;
-        overflow-y: auto; 
-        height: auto;
-    }
-    
-    /* Plot Sizing Ratios */
-    #signal-plot-container {
-        flex: 1;
-        min-height: 80px;
-    }
-    
-    .split-plot-row {
-        flex: 3; /* More height for 3D/Winding */
-        min-height: 150px;
-        display: flex;
-        flex-direction: row;
-        gap: 4px !important;
-    }
-    
-    .split-plot-row .plot-container {
-        flex: 1; /* Side by side */
-    }
-    
-    #mag-plot-container {
-        flex: 1;
-        min-height: 80px;
-    }
-
-    /* Force specific heights on mobile override */
-    .plot-container {
-        margin-bottom: 0px;
-        width: 100%;
-    }
-    
     
     .sidebar {
-        order: 2; 
+        position: fixed;
         width: 100%;
-        height: 30vh; /* Occupy ~25-30% */
-        flex: 0 0 auto;
-        border-right: none;
-        border-top: 1px solid var(--color-border);
-        z-index: 20;
-        padding: 16px;
-        box-shadow: 0 -4px 12px rgba(0,0,0,0.05);
-        display: flex !important; /* Force flex display even if previously hidden */
-    }
-
-    /* Collapsed State on Mobile - Drawer Style */
-    body.sidebar-collapsed .app-container {
-        grid-template-rows: none; /* Reset grid */
-    }
-    body.sidebar-collapsed .plots-wrapper {
-        width: 100%;
-        height: auto;
-        flex: 1; /* Grow to fill space */
-        padding-bottom: 30px; /* Space for toggle button */
-    }
-
-    /* When sidebar collapsed on mobile, stack EVERYTHING vertically */
-    body.sidebar-collapsed .split-plot-row {
-        flex-direction: column;
-        flex: 6; /* Double the height relative to others basically */
-    }
-    body.sidebar-collapsed .split-plot-row .plot-container {
-        flex: 1;
+        height: 100%;
+        top: 0;
+        left: 0;
+        z-index: 200;
+        transform: translateY(100%);
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        padding-bottom: 80px; /* Safe area for potential bottom bar */
     }
     
-    body.sidebar-collapsed #signal-plot-container,
-    body.sidebar-collapsed #mag-plot-container {
-        flex: 2; /* Slightly taller than default 1, relative to split-row's 6 */
-    }
-
     body.sidebar-collapsed .sidebar {
-        display: none !important;
-    }
-    
-    #toggle-sidebar-btn {
-        position: fixed; /* Fixed to viewport to ensure visibility */
-        left: 50%;
-        transform: translateX(-50%);
-        width: 64px;
-        height: 24px;
         display: flex;
-        justify-content: center;
-        align-items: center;
-        border-radius: 12px 12px 0 0;
-        border-bottom: none; 
-        border: 1px solid var(--color-border);
-        box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
-        background: white;
-        z-index: 1001;
-        transition: none; /* Instant snap */
-        top: auto; /* Override desktop top: 50% */
+        transform: translateY(0); /* On mobile, sidebar-collapsed = OPEN because default is hidden? Or reverse. */
+        /* Let's stick to standard: isSidebarCollapsed = true -> Hidden. */
+        /* Actually on mobile, default state is usually hidden. */
     }
-
-    /* Button Positioning logic */
-    body:not(.sidebar-collapsed) #toggle-sidebar-btn {
-        bottom: 30vh;
+    
+    /* Toggle Button Mobile: Bottom Right FAB */
+    #toggle-sidebar-btn {
+        top: auto;
+        bottom: 24px;
+        right: 24px;
+        left: auto;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        transform: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        border: none;
+        background: var(--color-accent);
+        color: white;
     }
-
+    #toggle-sidebar-btn:hover {
+        background: var(--color-accent-dark);
+        color: white;
+    }
+    
     body.sidebar-collapsed #toggle-sidebar-btn {
-        bottom: 0;
-        left: 50%; /* Override desktop specificity */
-        
-        /* Reset any desktop sidebar-collapsed overrides */
-        border-radius: 12px 12px 0 0; 
-        border: 1px solid var(--color-border);
-        border-bottom: none;
-        box-shadow: 0 -2px 5px rgba(0,0,0,0.05);
-    }
-    
-    #toggle-sidebar-btn span {
-        font-size: 20px;
-        margin: 0;
-    }
-
-    /* Chevron Rotation logic */
-    /* JS swaps icon between chevron_left (<) and chevron_right (>). 
-       On mobile, we simply rotate both -90deg to get Down (v) and Up (^). 
-    */
-    #toggle-sidebar-btn span {
-        transform: rotate(-90deg);
-        margin: 0;
-    }
-    
-    /* Hint Visibility */
-    .hint-desktop {
-        display: none;
-    }
-    .hint-mobile {
-        display: inline;
+        /* When sidebar is open on mobile (using this class logic inversely?) */
+        /* Let's just fix logic: Sidebar is overlay on mobile. */
+        left: auto;
     }
 }
