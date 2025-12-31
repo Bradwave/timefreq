@@ -91,6 +91,7 @@ const elements = {
     
     // STFT Controls
     transformSelect: document.getElementById('transform-type-select'),
+    transformDesc: document.getElementById('transform-desc'),
     windowWidthSlider: document.getElementById('window-width-slider'),
     windowWidthDisplay: document.getElementById('window-width-display'),
     windowPreviewCanvas: document.getElementById('window-preview-canvas'),
@@ -98,6 +99,8 @@ const elements = {
     // New Controls
     windowWidth2Slider: document.getElementById('window-width-2-slider'),
     windowWidth2Display: document.getElementById('window-width-2-display'),
+    windowPreviewCanvas2: document.getElementById('window-preview-canvas-2'), // Added second canvas
+    
     chirpRateSlider: document.getElementById('chirp-rate-slider'),
     chirpRateDisplay: document.getElementById('chirp-rate-display'),
     
@@ -113,18 +116,27 @@ const elements = {
     
     canvases: {
         signal: document.getElementById('signal-canvas'),
-        abs: document.getElementById('abs-transform-canvas'),
-        spectrogram: document.getElementById('spectrogram-canvas')
+        spectrogram: document.getElementById('spectrogram-canvas'),
+        absTransform: document.getElementById('abs-transform-canvas'),
+        winding: document.getElementById('winding-canvas'),
+        
+        winding: document.getElementById('winding-canvas')
     },
+    
+    // Window Preview Elements (NOT Contexts)
+    windowPreview: document.getElementById('window-preview-canvas'),
+    windowPreview2: document.getElementById('window-preview-canvas-2'),
+    
     ctx: {},
     plotInfo: document.getElementById('freq-info'),
     timeInfo: document.getElementById('time-info')
 };
 
 Object.keys(elements.canvases).forEach(k => {
-    if(elements.canvases[k]) elements.ctx[k] = elements.canvases[k].getContext('2d');
+    if(elements.canvases[k] && typeof elements.canvases[k].getContext === 'function') elements.ctx[k] = elements.canvases[k].getContext('2d');
+    else elements.ctx[k] = null;
 });
-if(elements.windowPreviewCanvas) elements.ctx.windowPreview = elements.windowPreviewCanvas.getContext('2d');
+
 
 let audioCtx = null;
 let isPlaying = null;
@@ -272,6 +284,10 @@ function loadState() {
             if (parsed.stftFreqRes) state.stftFreqRes = parsed.stftFreqRes;
             if (parsed.isSidebarCollapsed !== undefined) state.isSidebarCollapsed = parsed.isSidebarCollapsed;
 
+            // Clear buffers on load to prevent corruption
+            state.buffers.stftInput = [];
+            state.buffers.stftOutput = [];
+            state.buffers.fftOutput = [];
         } catch (e) { console.error(e); }
     }
 }
@@ -302,13 +318,27 @@ window.setWindowType = (type) => {
 }
 
 function drawWindowPreview() {
-    if(!elements.ctx.windowPreview || !elements.windowPreviewCanvas) return;
+    // Re-fetch elements to be safe
+    let canvas = elements.windowPreviewCanvas;
+    if(canvas && !elements.ctx.windowPreview) elements.ctx.windowPreview = canvas.getContext('2d');
+    
+    if(!canvas) {
+        canvas = document.getElementById('window-preview-canvas');
+        if(canvas) {
+            elements.windowPreviewCanvas = canvas;
+            elements.ctx.windowPreview = canvas.getContext('2d');
+        }
+    }
+    
+    if(!canvas || !elements.ctx.windowPreview) return;
+    
     const ctx = elements.ctx.windowPreview;
-    const canvas = elements.windowPreviewCanvas;
     
     // Fix DPI
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
+    if(rect.width === 0 || rect.height === 0) return; // Not visible
+    
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
@@ -318,52 +348,82 @@ function drawWindowPreview() {
     
     ctx.clearRect(0,0,w,h);
     
-    // Draw Axis like other previews (bottom line)
-    // Actually the stroke logic below handles the main shape.
-    // Let's just draw the window.
-    
-    // Draw Window Function
-    // We visualize it centered in time [-Width/2, Width/2] mapped to canvas width
-    // Canvas X=0 -> -0.6s, X=w -> +0.6s
-    const range = 1.2; 
-    
-    ctx.strokeStyle = '#1484e6';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    
-    const winW = state.windowWidth;
-    
-    for(let i=0; i<=w; i++) {
-        const xNorm = i/w;
-        const t = (xNorm - 0.5) * range; // Time relative to center
-        
-        let val = 0;
-        if(Math.abs(t) <= winW/2) {
-            if(state.windowType === 'square') {
-                val = 1.0;
-            } else {
-                // Gaussian: sigma = width/6 (matches STFT logic approx 3 sigma coverage)
-                const sigma = winW / 6;
-                val = Math.exp(-(t*t)/(2*sigma*sigma));
-            }
-        }
-        
-        // Match preview style: y = h - (val * h * 0.9) - 2
-        // Just like drawEnvelopePreview
-        const y = h - (val * h * 0.8) - 1; 
-        if(i===0) ctx.moveTo(i,y); else ctx.lineTo(i,y);
-    }
-    ctx.stroke();
-    
-    // Fill slightly?
-    /*
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(20, 132, 230, 0.1)';
-    ctx.fill();
-    */
+    // Force Gaussian for Wigner-Ville visual
+    const effectiveType = (state.transformType === 'wigner') ? 'gaussian' : state.windowType;
 
+    drawWindowCurve(ctx, w, h, state.windowWidth, effectiveType, false);
+    
+    // Draw Second Window if visible
+    if(state.transformType === 'double_gabor') { 
+         let c2 = elements.windowPreviewCanvas2;
+         if(!c2) {
+             c2 = document.getElementById('window-preview-canvas-2');
+             if(c2) {
+                 elements.windowPreviewCanvas2 = c2;
+                 elements.ctx.windowPreview2 = c2.getContext('2d');
+             }
+         }
+         else if(c2 && !elements.ctx.windowPreview2) {
+             elements.ctx.windowPreview2 = c2.getContext('2d');
+         }
+
+         if(c2 && elements.ctx.windowPreview2) {
+             const ctx2 = elements.ctx.windowPreview2;
+             const rect2 = c2.getBoundingClientRect();
+             if(rect2.width > 0 && rect2.height > 0) {
+                 c2.width = rect2.width * dpr;
+                 c2.height = rect2.height * dpr;
+                 ctx2.scale(dpr,dpr);
+                 ctx2.clearRect(0,0, rect2.width, rect2.height);
+                 drawWindowCurve(ctx2, rect2.width, rect2.height, state.windowWidth2, effectiveType, false);
+             }
+         }
+    }
+}
+
+function drawWindowCurve(ctx, w, h, widthSecs, type, isChirp) {
+     // Let's assume Canvas Width represents 1.0 Second for visualization context? 
+     // Or just normalize so 1.0s = full width.
+     
+     const samplesPerCanvas = w; // 1 pixel = 1 slice
+     // effective width in pixels = widthSecs * w (if canvas is 1s).
+     // Let's assume canvas is 1.2s to leave margin.
+     const maxSecs = 1.2;
+     
+     const sigmaPixels = (widthSecs / maxSecs) * w / 6; 
+     const mid = w / 2;
+     
+     ctx.beginPath();
+     ctx.strokeStyle = '#1484e6';
+     ctx.lineWidth = 2;
+     
+     const step = 1;
+     
+     for(let i=0; i<=w; i+=step) {
+         let val = 0;
+         const x = i - mid;
+         
+         if(type === 'square') {
+             // Square width in pixels
+             const halfW = ((widthSecs / maxSecs) * w) / 2;
+             val = (Math.abs(x) <= halfW) ? 1.0 : 0.0;
+         } else {
+             // Gaussian
+             val = Math.exp(-(x*x)/(2*sigmaPixels*sigmaPixels));
+         }
+         
+         const plotY = h - (val * (h-10)) - 5; 
+         
+         if(i===0) ctx.moveTo(i, plotY);
+         else ctx.lineTo(i, plotY);
+     }
+     ctx.stroke();
+     
+     // Fill
+     ctx.lineTo(w, h);
+     ctx.lineTo(0, h);
+     ctx.fillStyle = 'rgba(20, 132, 230, 0.1)';
+     ctx.fill();
 }
 
 window.toggleSpectrogramLog = () => {
@@ -500,6 +560,9 @@ function renderComponentsUI() {
                 </div>
             ` : `
             <div class="component-body">
+                <div class="component-collapsed-preview" style="margin-bottom: 2px;">
+                    <canvas id="exp-col-prev-${comp.id}" width="300" height="40"></canvas>
+                </div>
                 <div class="component-controls" style="display: flex; flex-direction: column; gap: 8px;">
                      <!-- Wave Type Selector -->
                     <div class="component-control-item" style="width: 100%;">
@@ -550,7 +613,7 @@ function renderComponentsUI() {
                 <div class="envelope-section">
                     <div class="envelope-header">
                         <span class="component-label">ENVELOPE</span>
-                        <div class="segmented-control" style="margin: 0; width: 120px; transform: scale(0.9);">
+                        <div class="segmented-control envelope-type-control">
                             <div class="segmented-option ${comp.envelopeType === 'gaussian' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'gaussian')">GAUSS</div>
                             <div class="segmented-option ${comp.envelopeType === 'adsr' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'adsr')">ADSR</div>
                             <div class="segmented-option ${comp.envelopeType === 'square' ? 'active' : ''}" onclick="setEnvelopeType('${comp.id}', 'square')">SQR</div>
@@ -566,6 +629,7 @@ function renderComponentsUI() {
         } else {
             drawComponentPreview(document.getElementById(`preview-${comp.id}`), comp);
             drawEnvelopePreview(document.getElementById(`env-prev-${comp.id}`), comp);
+            drawCollapsedPreview(document.getElementById(`exp-col-prev-${comp.id}`), comp);
         }
     });
 }
@@ -639,15 +703,14 @@ function getSignalValueAt(t) {
 let fftBitRev = new Uint32Array(16384);
 let fftBitRevN = 0;
 
-function fft(data, bufferLike, len) {
+// FFT Function (Extended for Inverse)
+function fft(data, bufferLike, len, inverse=false) {
     const N = len || data.length;
 
-    // Bit Rev Table
-    if (N !== fftBitRevN) {
+    // Bit Rev Table (Ensure size)
+    if (N > fftBitRev.length || N !== fftBitRevN) {
         fftBitRevN = N;
-        if (N > fftBitRev.length) {
-            fftBitRev = new Uint32Array(N);
-        }
+        fftBitRev = new Uint32Array(N);
         const bits = Math.log2(N);
         for (let i = 0; i < N; i++) {
             let n = i;
@@ -682,9 +745,10 @@ function fft(data, bufferLike, len) {
     }
 
     // Butterfly
+    const sign = inverse ? 1 : -1;
     for (let len = 2; len <= N; len <<= 1) {
         const half = len >> 1;
-        const angleBase = -2 * Math.PI / len;
+        const angleBase = sign * 2 * Math.PI / len;
         const wBaseRe = Math.cos(angleBase);
         const wBaseIm = Math.sin(angleBase);
 
@@ -707,7 +771,56 @@ function fft(data, bufferLike, len) {
             }
         }
     }
+    
+    if(inverse) {
+        for(let i=0; i<N; i++) {
+            output[i].re /= N;
+            output[i].im /= N;
+        }
+    }
+    
     return output;
+}
+
+// Helper: Analytic Signal Computation (Hilber Transform)
+// To remove negative frequencies and double positive.
+function getAnalyticSignal(signalBuffer, numSamples) {
+    // 1. Next Power of 2
+    let N = 1; while(N < numSamples) N *= 2;
+    // Limit max N for performance?
+    if (N < 1024) N = 1024; // Min size
+    
+    // Prepare input
+    const input = new Array(N);
+    for(let i=0; i<N; i++) {
+        if(i < numSamples) input[i] = { re: signalBuffer[i].val, im: 0 };
+        else input[i] = { re: 0, im: 0 };
+    }
+    const spectrum = fft(input, null, N, false);
+    
+    // Create Analytic Spectrum:
+    // Z[k] = 2*X[k] for 1 to N/2-1
+    // Z[0] = X[0]
+    // Z[N/2] = X[N/2] (Nyquist)
+    // Z[k] = 0 for N/2+1 to N-1
+    
+    // Modifying in place or new buffer? Use spectrum in place.
+    const hN = N/2;
+    // k=0 stays same
+    for(let k=1; k<hN; k++) {
+        spectrum[k].re *= 2;
+        spectrum[k].im *= 2;
+    }
+    // k=hN stays same (Nyquist)
+    for(let k=hN+1; k<N; k++) {
+        spectrum[k].re = 0;
+        spectrum[k].im = 0;
+    }
+    
+    // Inverse FFT
+    const analytic = fft(spectrum, null, N, true); // Inverse
+    
+    return analytic; // Array of {re, im}
 }
 
 // ----------------------------------------------------
@@ -782,7 +895,7 @@ function animate() {
     const maxDisplayFreq = state.viewAbs.endFreq > 0 ? Math.min(state.viewAbs.endFreq, strictMaxFreq) : strictMaxFreq;
 
     drawSignalPlot(elements.ctx.signal, displaySignal, elements.canvases.signal);
-    drawAbsTransform(elements.ctx.abs, fftResult, elements.canvases.abs, maxDisplayFreq, N_FFT);
+    drawAbsTransform(elements.ctx.absTransform, fftResult, elements.canvases.absTransform, maxDisplayFreq, N_FFT);
     drawSpectrogram(elements.ctx.spectrogram, stftData, elements.canvases.spectrogram, maxDisplayFreq);
 }
 
@@ -803,20 +916,29 @@ function updateTransformUI(type) {
     if(elements.widthControl2) elements.widthControl2.style.display = 'none';
     if(elements.chirpControl) elements.chirpControl.style.display = 'none';
     if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width";
+    
+    let desc = "";
 
     if(type === 'double_gabor') {
-        if(elements.widthControl2) elements.widthControl2.style.display = 'flex';
+        desc = "Multiplies two Gabor transforms with different window widths. Sharpens joint time-frequency localization.";
+        if(elements.widthControl2) elements.widthControl2.style.display = 'block'; // force block/flex
         if(elements.widthLabel1) elements.widthLabel1.innerText = "Window Width 1";
     } else if(type === 'wavelet') {
-        // Wavelet logic actually uses window width as 'Base Scale' maybe?
-        // Or we just use it as 'sigma at f0'. 
-        // Hide window selection (force Morlet/Gaussian basically) or keep it as generic envelope?
-        // Let's keep generic for now.
+        desc = "Continuous Wavelet Transform (Approximated). Uses wide windows for low frequencies coverage and narrow for high frequencies.";
+        if(elements.widthControl1) elements.widthControl1.style.display = 'none';
+        // Keep windowControlsGroup visible
     } else if(type === 'wigner') {
-         // Uses smoothing window
+         desc = "Pseudo Wigner-Ville Distribution. Offers high resolution but introduces cross-term interference (ghosts) for multi-component signals.";
+         if(elements.windowControlsGroup) elements.windowControlsGroup.style.display = 'none';
     } else if(type === 'chirplet') {
-         if(elements.chirpControl) elements.chirpControl.style.display = 'flex';
+         desc = "Chirplet Transform. Extends Gabor with a chirp parameter to rotate the time-frequency tiling, perfect for sweeping signals.";
+         if(elements.chirpControl) elements.chirpControl.style.display = 'block';
+    } else {
+        desc = "Standard Short-Time Fourier Transform (Gabor). Uses a fixed window size for the entire spectrogram.";
     }
+    
+    if(elements.transformDesc) elements.transformDesc.innerText = desc;
+    drawWindowPreview(); // Updates visibility of 2nd canvas potentially via CSS, but we need to draw it.
 }
 
 // Master Compute Function
@@ -1041,6 +1163,10 @@ function computeWignerVille(signalBuffer, sampleRate, duration) {
     // Global FFT approach is best if we have the full buffer.
     const numSamples = Math.floor(duration * sampleRate);
     
+    // Compute Analytic Signal z(t) = x(t) + jH[x(t)]
+    // This removes cross terms between positive and negative frequencies.
+    const z = getAnalyticSignal(signalBuffer, numSamples);
+    
     // Only compute if we have a buffer
     // For performance, maybe skip analytic and just use real? 
     // Real WVD has cross terms between +f and -f (at DC). 
@@ -1073,7 +1199,7 @@ function computeWignerVille(signalBuffer, sampleRate, duration) {
         const centerIdx = Math.floor(t * stepSize);
         
         // Compute Auto-Correlation function K[tau]
-        // K[tau] = x[t + tau] * x*[t - tau]
+        // K[tau] = z[t + tau] * z*[t - tau]
         // Range of tau? -halfW to +halfW.
         // We map tau to FFT input.
         
@@ -1091,49 +1217,64 @@ function computeWignerVille(signalBuffer, sampleRate, duration) {
         const M = Math.min(halfW, Math.floor(N_FFT/2) - 1);
         
         // Center term (m=0)
+        // z[t] * z*[t] = |z[t]|^2
         if(centerIdx >=0 && centerIdx < numSamples) {
-            const val = signalBuffer[centerIdx].val;
-            stftInput[0].re = val * val * winFunc[halfW]; // m=0 window center
+            // const val = signalBuffer[centerIdx].val;
+            // stftInput[0].re = val * val * winFunc[halfW]; // m=0 window center
+            const z0 = z[centerIdx];
+            if(z0) {
+               const magSq = z0.re*z0.re + z0.im*z0.im;
+               stftInput[0].re = magSq * winFunc[halfW];
+            }
         }
         
         for(let m=1; m<=M; m++) {
             const idxP = centerIdx + m;
             const idxN = centerIdx - m;
             
-            if(idxP < numSamples && idxN >= 0 && idxP < signalBuffer.length) {
-                const valP = signalBuffer[idxP].val;
-                const valN = signalBuffer[idxN].val;
+            if(idxP < z.length && idxN >= 0) {
+                const zP = z[idxP];
+                const zN = z[idxN];
                 
-                // x(n+m) * x(n-m)
-                const prod = valP * valN;
+                // z(n+m) * z*(n-m)
+                // (a+jb)(c-jd) = (ac+bd) + j(bc-ad)
+                const ac_bd = zP.re*zN.re + zP.im*zN.im;
+                const bc_ad = zP.im*zN.re - zP.re*zN.im;
                 
                 // Apply smoothing window h(m)
                 // Window index: halfW + m and halfW - m?
                 // Usually window is applied to the lag m.
                 const wVal = winFunc[halfW + m]; // symmetric
                 
-                const res = prod * wVal;
+                const re = ac_bd * wVal;
+                const im = bc_ad * wVal;
                 
                 // Fill symmetric FFT buffer
-                // Positive lag
-                stftInput[m].re = res;
+                // Positive lag m
+                stftInput[m].re = re;
+                stftInput[m].im = im;
+                
                 // Negative lag (maps to N - m)
-                stftInput[N_FFT - m].re = res;
+                // K[-tau] = z[t-tau]*z*[t+tau] = (z[t+tau]*z*[t-tau])* = K[tau]*
+                // So at N-m we put conjugate of m
+                stftInput[N_FFT - m].re = re;
+                stftInput[N_FFT - m].im = -im;
             }
         }
         
         fft(stftInput, stftOutput, N_FFT);
         
         const mag = new Float32Array(N_FFT/2);
-        for(let k=0; k<N_FFT/2; k++) {
-            // WVD is real-valued. Take Real part of FFT (Re).
-            // But due to finite window, might have small imag?
-            // Actually WVD of real signal is real.
-            // Also take abs for visualization logic (log scale etc)
-            // Cross terms are oscillatory, can be negative.
-            // Spectrogram usually shows Magnitude.
-            // Let's show abs(Real).
-            mag[k] = Math.abs(stftOutput[k].re); 
+        
+        // Fix scaling: WVD lag step 2 leads to effective Fs_wvd = Fs / 2.
+        // So bin k corresponds to freq k * (Fs/2) / N.
+        // Standard Spectrogram expects bin j to be freq j * Fs / N.
+        // Equating freqs: k * Fs / (2N) = j * Fs / N  => k = 2j.
+        // We can only fill up to Fs/4 (j < N/4) with this method.
+        
+        for(let j=0; j<N_FFT/4; j++) {
+             // WVD is real.
+             mag[j] = Math.abs(stftOutput[2*j].re); 
         }
         stftData.push(mag);
     }
@@ -1523,22 +1664,30 @@ function drawSpectrogram(ctx, stftData, canvas, maxFreq) {
     const sx = (state.zoomStart / 5.0) * tw;
     const sw = ((state.zoomEnd - state.zoomStart) / 5.0) * tw;
     
-    // Calculate Dest Rect based on Y-Zoom (maxFreq)
-    // maxFreq limits the top frequency shown.
-    // th bins cover 0 to sampleRate/2 (128Hz).
+    // Y-Zoom (Frequency)
+    // Canvas Top is 0 Hz? NO. 
+    // In temp canvas generation: py = th - 1 - y. (y=0 is freq 0).
+    // So py=th-1 is freq 0 (Bottom of temp canvas).
+    // py=0 is freq Max (Nyquist, Top of temp canvas).
     
     const nyquist = state.sampleRate / 2;
-    // maxFreq is determined by global FFT zoom, usually > signal.
-    // Clamp to nyquist for safety
-    const displayMax = Math.min(maxFreq, nyquist);
-    const yMaxRatio = displayMax / nyquist;
+    // Current View Freqs
+    const fStart = state.viewAbs.startFreq;
+    const fEnd = state.viewAbs.endFreq > 0 ? state.viewAbs.endFreq : maxFreq; 
     
-    // Image Coordinates: Top is High Freq, Bottom is 0 Hz.
-    // We want 0 Hz to displayMax Hz.
-    // 0 Hz is at Bottom (y=th). displayMax is at y = th - (ratio * th).
+    // Clamp to Nyquist
+    const dispStart = Math.min(fStart, nyquist);
+    const dispEnd = Math.min(fEnd, nyquist);
     
-    const sh = yMaxRatio * th; 
-    const sy = th - sh; 
+    // Map Freq to Y pixels in Temp Canvas (Top-Down, 0 at Top)
+    // Y_norm = 1.0 - (f / Nyquist). (1.0 is Bottom/DC, 0.0 is Top/Nyq)
+    // y_pixel = Y_norm * th.
+    
+    const yTopNorm = 1.0 - (dispEnd / nyquist);
+    const yBotNorm = 1.0 - (dispStart / nyquist);
+    
+    const sy = yTopNorm * th;
+    const sh = (yBotNorm - yTopNorm) * th;
     
     // Prevent invalid source rect
     if(sw <= 0 || sh <= 0) return;
@@ -1547,7 +1696,7 @@ function drawSpectrogram(ctx, stftData, canvas, maxFreq) {
     ctx.drawImage(elements.tempCanvas, sx, sy, sw, sh, 0, 0, w, h);
     
     if(state.showAxis) {
-        drawAxis(ctx, w, h, [state.zoomStart, state.zoomEnd], [0, displayMax], ' s', ' Hz');
+        drawAxis(ctx, w, h, [state.zoomStart, state.zoomEnd], [dispStart, dispEnd], ' s', ' Hz');
     }
 
     // DRAW OVERLAYS on Spectrogram
@@ -1687,6 +1836,7 @@ function setupListeners() {
         elements.windowWidth2Slider.addEventListener('input', (e) => {
             state.windowWidth2 = parseFloat(e.target.value);
             elements.windowWidth2Display.innerText = state.windowWidth2.toFixed(2) + 's';
+            drawWindowPreview(); // Redraws both
             saveState();
         });
     }
@@ -1773,7 +1923,7 @@ function setupListeners() {
     }
     
     // Abs Plot Drag Interaction
-    const absCanvas = elements.canvases.abs;
+    const absCanvas = elements.canvases.absTransform;
     if(absCanvas) {
         const handleFreqDrag = (e) => {
              const rect = absCanvas.getBoundingClientRect();
@@ -1810,9 +1960,10 @@ function setupListeners() {
                  state.viewAbs.endFreq = newEnd;
                  updateFreqSliderUI();
              } else {
-                 // Select Freq
+                 // Select Freq: Range is startF to maxDisplay
+                 // maxDisplay here is effectively endF from drawing
                  const f = startF + (x / w) * (maxDisplay - startF);
-                 state.selectedFrequency = Math.max(0, Math.min(f, maxDisplay));
+                 state.selectedFrequency = Math.max(startF, Math.min(f, maxDisplay));
                  if(elements.plotInfo) elements.plotInfo.innerText = `Freq: ${state.selectedFrequency.toFixed(2)} Hz`;
              }
              state.lastMouse = { x: e.clientX, y: e.clientY };
@@ -1975,14 +2126,20 @@ function setupListeners() {
              // Calc current display max
              let maxCompFreq = 0; state.components.forEach(c => { if (c.freq > maxCompFreq) maxCompFreq = c.freq; });
              const strictMaxFreq = Math.max(20, Math.ceil(maxCompFreq * 1.5));
-             const dispEnd = state.viewAbs.endFreq > 0 ? Math.min(state.viewAbs.endFreq, strictMaxFreq) : strictMaxFreq;
-             const nyquist = state.sampleRate / 2;
-             const displayMax = Math.min(dispEnd, nyquist);
              
-             // Y=0 -> Max, Y=h -> 0
-             // val = Max * (1 - y/h)
-             const f = displayMax * (1 - (y/h));
-             state.selectedFrequency = Math.max(0, Math.min(f, displayMax));
+             // Y=0 -> dispEnd (Top), Y=h -> dispStart (Bottom)
+             // val = dispStart + (dispEnd - dispStart) * (1 - y/h)
+             
+             const nyquist = state.sampleRate / 2;
+             const fStart = state.viewAbs.startFreq;
+             const fEnd = state.viewAbs.endFreq > 0 ? state.viewAbs.endFreq : strictMaxFreq;
+             
+             const dispStart = Math.min(fStart, nyquist);
+             const dispEnd = Math.min(fEnd, nyquist);
+             
+             const f = dispStart + (dispEnd - dispStart) * (1 - (y/h));
+             
+             state.selectedFrequency = Math.max(0, Math.min(f, dispEnd));
              if(elements.plotInfo) elements.plotInfo.innerText = `Freq: ${state.selectedFrequency.toFixed(2)} Hz`;
 
              saveState();

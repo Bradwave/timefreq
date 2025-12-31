@@ -46,6 +46,101 @@
                 </div>
             </div>
 
+            <!-- TRANSFORMS SECTION (Collapsible) -->
+            <div class="section-header-collapsible" data-target="transform-wrapper">
+                <div class="section-title section-title-clean">Transform Settings</div>
+                <span class="material-symbols-outlined dropdown-icon">expand_more</span>
+            </div>
+
+            <div id="transform-wrapper" class="collapsible-content expanded">
+                <div class="collapsible-inner">
+                    <div class="control-group">
+                        <div class="control-label">Transform Type</div>
+                        <div class="component-slider-wrapper">
+                            <select id="transform-type-select" class="dropdown-select"
+                                onchange="setTransformType(this.value)"
+                                style="width:100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
+                                <option value="gabor">Gabor (STFT)</option>
+                                <option value="double_gabor">Double Gabor</option>
+                                <option value="wavelet">Wavelet (Approximated)</option>
+                                <option value="wigner">Wigner-Ville</option>
+                                <option value="chirplet">Chirplet</option>
+                            </select>
+                        </div>
+                        <div class="control-description" id="transform-desc">
+                            Standard STFT. Fixed window size.
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="window-controls-group">
+                        <div class="control-label">Window Function</div>
+                        <div class="segmented-control">
+                            <div class="segmented-option active" id="window-gaussian"
+                                onclick="setWindowType('gaussian')">Gaussian</div>
+                            <div class="segmented-option" id="window-square" onclick="setWindowType('square')">Square
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="control-group" id="width-control-1">
+                        <div class="control-label" id="width-label-1">Window Width</div>
+                        <div class="component-slider-wrapper">
+                            <input type="range" class="compact-range" id="window-width-slider" min="0.05" max="1.0"
+                                step="0.05" value="0.2">
+                        </div>
+                        <div id="window-width-display" class="component-value">0.20s</div>
+                        <div style="margin-top: 8px;">
+                            <canvas id="window-preview-canvas" width="280" height="60"
+                                style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="control-group hidden" id="width-control-2" style="display:none;">
+                        <div class="control-label">Window Width 2</div>
+                        <div class="component-slider-wrapper">
+                            <input type="range" class="compact-range" id="window-width-2-slider" min="0.05" max="1.0"
+                                step="0.05" value="0.5">
+                        </div>
+                        <div id="window-width-2-display" class="component-value">0.50s</div>
+                        <div style="margin-top: 8px;">
+                            <canvas id="window-preview-canvas-2" width="280" height="60"
+                                style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="control-group hidden" id="chirp-control" style="display:none;">
+                        <div class="control-label">Chirp Rate</div>
+                        <div class="component-slider-wrapper">
+                            <input type="range" class="compact-range" id="chirp-rate-slider" min="-50" max="50" step="1"
+                                value="0">
+                        </div>
+                        <div id="chirp-rate-display" class="component-value">0</div>
+                    </div>
+
+                    <div class="divider-dashed"></div>
+
+                    <!-- Resolution Controls moved here inside Transform -->
+                    <div class="control-group">
+                        <div class="control-label">Time Resolution (Steps)</div>
+                        <div class="component-slider-wrapper">
+                            <input type="range" class="compact-range" id="stft-time-res-slider" min="100" max="800"
+                                step="50" value="400">
+                        </div>
+                        <div id="stft-time-res-display" class="component-value">400</div>
+                    </div>
+
+                    <div class="control-group">
+                        <div class="control-label">Freq Resolution (FFT Size)</div>
+                        <div class="segmented-control" style="margin-bottom: 0;">
+                            <div class="segmented-option" onclick="setFFTSize(256)" id="fft-256">256</div>
+                            <div class="segmented-option active" onclick="setFFTSize(512)" id="fft-512">512</div>
+                            <div class="segmented-option" onclick="setFFTSize(1024)" id="fft-1024">1024</div>
+                            <div class="segmented-option" onclick="setFFTSize(2048)" id="fft-2048">2048</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Audio Settings (Collapsible) -->
             <div class="section-header-collapsible" data-target="audio-wrapper">
                 <div class="section-title section-title-clean">Audio Settings</div>
@@ -77,82 +172,6 @@
 
             <div id="visualization-wrapper" class="collapsible-content expanded">
                 <div class="collapsible-inner">
-
-                    <!-- STFT Window Controls -->
-                    <div class="control-group">
-                        <div class="section-title section-title-clean" style="margin-bottom:8px;">Transform</div>
-                        
-                        <div class="component-slider-wrapper">
-                            <select id="transform-type-select" class="dropdown-select" onchange="setTransformType(this.value)" style="width:100%; padding: 8px; border-radius: 6px; border: 1px solid #ccc; font-family: inherit;">
-                                <option value="gabor">Gabor (STFT)</option>
-                                <option value="double_gabor">Double Gabor</option>
-                                <option value="wavelet">Wavelet (CWT)</option>
-                                <option value="wigner">Wigner-Ville</option>
-                                <option value="chirplet">Chirplet</option>
-                            </select>
-                        </div>
-                    </div>
-
-                     <div class="control-group" id="window-controls-group">
-                        <div class="section-title section-title-clean" style="margin-bottom:8px;">Window Function</div>
-                        
-                        <div class="segmented-control">
-                            <div class="segmented-option active" id="window-gaussian" onclick="setWindowType('gaussian')">Gaussian</div>
-                            <div class="segmented-option" id="window-square" onclick="setWindowType('square')">Square</div>
-                        </div>
-                    </div>
-
-                    <div class="control-group" id="width-control-1">
-                        <div class="control-label" id="width-label-1">Window Width</div>
-                        <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="window-width-slider" min="0.05" max="1.0" step="0.05" value="0.2">
-                        </div>
-                        <div id="window-width-display" class="component-value">0.20s</div>
-                        <div style="margin-top: 8px;">
-                             <canvas id="window-preview-canvas" width="280" height="60" style="width: 100%; height: 60px; display: block; border-bottom: 1px solid #eee;"></canvas>
-                        </div>
-                        <div class="control-description">
-                            Trade-off between time and frequency resolution.
-                        </div>
-                    </div>
-
-                    <div class="control-group" id="width-control-2" style="display:none;">
-                        <div class="control-label">Window Width 2 (Double)</div>
-                        <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="window-width-2-slider" min="0.05" max="1.0" step="0.05" value="0.5">
-                        </div>
-                        <div id="window-width-2-display" class="component-value">0.50s</div>
-                    </div>
-
-                    <div class="control-group" id="chirp-control" style="display:none;">
-                        <div class="control-label">Chirp Rate</div>
-                        <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="chirp-rate-slider" min="-50" max="50" step="1" value="0">
-                        </div>
-                        <div id="chirp-rate-display" class="component-value">0</div>
-                    </div>    
-                    
-
-                    <!-- New Resolution Controls -->
-                    <div class="control-group">
-                        <div class="control-label">Time Resolution (Steps)</div>
-                        <div class="component-slider-wrapper">
-                            <input type="range" class="compact-range" id="stft-time-res-slider" min="100" max="800" step="50" value="400">
-                        </div>
-                        <div id="stft-time-res-display" class="component-value">400</div>
-                    </div>
-
-                    <div class="control-group">
-                        <div class="control-label">Freq Resolution (FFT Size)</div>
-                         <div class="segmented-control" style="margin-bottom: 0;">
-                            <div class="segmented-option" onclick="setFFTSize(256)" id="fft-256">256</div>
-                            <div class="segmented-option active" onclick="setFFTSize(512)" id="fft-512">512</div>
-                            <div class="segmented-option" onclick="setFFTSize(1024)" id="fft-1024">1024</div>
-                            <div class="segmented-option" onclick="setFFTSize(2048)" id="fft-2048">2048</div>
-                        </div>
-                    </div>
-
-                    <div class="divider-dashed"></div>
 
                     <div class="control-group">
                         <div class="control-label">Global amp multiplier (x<span id="global-amp-display">1.0</span>)
@@ -205,10 +224,10 @@
                     </div>
 
                     <!-- Advanced -->
-                     <div class="control-group sec-margin-top">
+                    <div class="control-group sec-margin-top">
                         <div class="control-label">Transform resolution (bins)</div>
                         <input type="range" id="fft-sampling-slider" min="1" max="3" value="2" step="1">
-                         <div class="control-description">
+                        <div class="control-description">
                             Increase for finer frequency detail.
                         </div>
                     </div>
@@ -253,17 +272,21 @@
             <div id="about-wrapper" class="collapsible-content">
                 <div class="collapsible-inner">
                     <p class="about-text">
-                        This tool visualizes the <strong>Time-Frequency</strong> characteristics of a signal using the <strong>Short-Time Fourier Transform (STFT)</strong>.
+                        This tool visualizes the <strong>Time-Frequency</strong> characteristics of a signal using the
+                        <strong>Short-Time Fourier Transform (STFT)</strong>.
                         <br><br>
-                        Unlike the standard Fourier Transform which shows global frequency content, the STFT breaks the signal into small time windows to show how frequencies change over time.
+                        Unlike the standard Fourier Transform which shows global frequency content, the STFT breaks the
+                        signal into small time windows to show how frequencies change over time.
                         <br><br>
-                        <strong>Spectrogram (Bottom):</strong> A heat map where the horizontal axis is Time, the vertical axis is Frequency, and color intensity represents Magnitude.
+                        <strong>Spectrogram (Bottom):</strong> A heat map where the horizontal axis is Time, the
+                        vertical axis is Frequency, and color intensity represents Magnitude.
                         <br><br>
                         <strong>Window Functions:</strong>
                         <br>
                         • <strong>Gaussian:</strong> Smooth standard deviation, minimizes spectral leakage.
                         <br>
-                        • <strong>Square:</strong> Sharp cutoff, good time resolution but causes spectral leakage (ringing).
+                        • <strong>Square:</strong> Sharp cutoff, good time resolution but causes spectral leakage
+                        (ringing).
                         <br><br>
                         <strong>Uncertainty Principle:</strong>
                         <br>
@@ -306,15 +329,16 @@
             </div>
 
             <!-- Bottom: Spectrogram -->
-             <div class="plot-container" id="spectrogram-container" style="flex: 1.5; position: relative;">
+            <div class="plot-container" id="spectrogram-container" style="flex: 1.5; position: relative;">
                 <div class="plot-label">SPECTROGRAM (STFT)</div>
                 <div class="plot-controls">
                     <!-- Future Controls -->
                 </div>
                 <!-- Canvas for drawing spectrogram -->
                 <canvas id="spectrogram-canvas"></canvas>
-                 <!-- Transparent overlay for mouse interaction/grid if needed -->
-                <div id="spectrogram-overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
+                <!-- Transparent overlay for mouse interaction/grid if needed -->
+                <div id="spectrogram-overlay"
+                    style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></div>
             </div>
         </main>
     </div>
